@@ -1,0 +1,262 @@
+OKEY17 / GÖBEK17 — QA / CONFLICT GUARD REPORT
+Build: gobek17-152-standard-fake-okey-immutable-meld-side-take
+Parent canonical: gobek17-151-table-transport-bridge.zip
+Date: 2026-08-19
+Status: PASS — eligible for packaging/promotion
+
+============================================================
+1. USER-LOCKED RULE CHANGES
+============================================================
+
+A) SAHTE OKEY — SINGLE STANDARD OKEY AUTHORITY
+- NORMAL and BIG hands now both use a numbered indicator.
+- Real Okey = same-color next number of indicator (13->1 only for Okey identity).
+- Sahte Okey (★) is NEVER wildcard/joker.
+- Sahte Okey represents the real Okey's color+number as a natural tile in meld/score/pair logic.
+- Visual face stays ★.
+- Example: black 4 indicator => real Okey black 5 => Sahte Okey behaves as natural black 5; black 4-★-6 is legal.
+- Old BIG_FAKE and FAKE_INDICATOR_BIG runtime paths are removed.
+- If a fake tile is encountered while choosing the indicator, it is skipped and the first numbered tile is chosen as indicator; fake stays in deck.
+
+B) OPENED MELDS ARE IMMUTABLE
+- Once opened, existing meld tiles cannot be removed, reordered, repartitioned, moved into another meld, or split.
+- SERIES process is endpoint-only (far left / far right).
+- A SERIES meld can receive at most TWO processed tiles total after opening (processAdds <= 2).
+- Example: blue 4-5-6-7-8 + blue 9 remains one meld 4-5-6-7-8-9; no 3+3 split. Blue 10 may be added as the second process; a third addition is RED.
+- Existing RENKSIZ SERI PER max-4 rule remains.
+- PAIR processing remains a separate 2-tile path creating a new PAIR meld; it does not append a single third tile to an existing pair.
+- Long-press meld reposition/zoom authority removed; canonical layoutMelds() remains the single geometry authority.
+- Illegal middle/third endpoint process intent does not fall through to FREE board; source tile is restored.
+
+C) SIDE-DISCARD TAKE / RETURN
+- Side-taken tile is a pending tile.
+- If used legally in OPEN / new PER / PROCESS, taker pays represented tile value x10 to SELF.
+- If it cannot be used, is cancelled, or player attempts another discard:
+  * taker pays represented tile value x10 to SELF,
+  * exact physical pending tile returns to source player's discard area,
+  * taker's normal rack tile is not discarded,
+  * turn advances atomically.
+- TAKE_CANCEL cannot bypass penalty.
+
+============================================================
+2. ROOT CAUSE / CONFLICT FINDINGS
+============================================================
+
+1) Special fake-Okey authority was fragmented across runtime modes.
+   The browser/server engine still had BIG_FAKE and FAKE_INDICATOR_BIG branches in addition to normal INDICATOR behavior. These were removed so one numbered-indicator authority governs both NORMAL and BIG hands.
+
+2) Opened meld mutation had multiple legacy behaviors.
+   The old 5+1 female-run path could split a six-tile meld into 3+3, contradicting the locked 'opened meld never moves/splits' rule. That split path was removed. Existing meld order is now preserved after the initial canonical open normalization, and SERIES processing is endpoint-only with a cumulative two-add limit.
+
+3) Presentation had a separate long-press reposition authority.
+   activateMeldHold could visually reposition/zoom opened meld content independently of canonical engine layout. It was removed. Existing v149 transform hardening and computed-transform audit remain active.
+
+4) Side-take behavior had an old retention/penalty model.
+   Pending side tile could be retained/handled in a way incompatible with the new 'use it or return it' rule. TAKE_PENALTY/TAKE_CANCEL/discard-with-pending now converge on one atomic return+penalty transaction.
+
+5) Trial/error caught a strict-mode browser defect before packaging.
+   Initial v152 browser patch used:
+       var pd=st.pending;st.pending=null,amount=tv(pd.tile)*10;
+   where amount was undeclared under strict mode, producing ReferenceError: amount is not defined.
+   Corrected in browser and server engine to declare amount before clearing pending:
+       var pd=st.pending,amount=tv(pd.tile)*10;st.pending=null;
+   Browser parity was rerun after the fix and passed.
+
+============================================================
+3. TARGETED RULE QA
+============================================================
+
+Server/browser canonical rule suite:
+- test: qa/test-v152-rules.cjs
+- result: V152_TARGETED_RULES_PASS
+- deterministic black-4 indicator seed: 42
+
+Covered:
+- BIG numeric indicator + normal fake representation
+- NORMAL black4 => fake black5 natural meld behavior
+- immutable 4-5-6-7-8 + 9 + 10 as ONE meld, processAdds=2
+- third process RED
+- left endpoint prepend preserves existing sequence
+- failed side take => self penalty + exact tile return + rack unchanged + turn end
+- TAKE_CANCEL cannot evade
+- successful pending-tile OPEN => self penalty, source unaffected
+
+============================================================
+4. BROWSER / PRESENTATION QA
+============================================================
+
+Viewports tested:
+- 768x356
+- 915x412
+- 1536x712
+- 1842x854
+
+Result:
+- page errors: 0
+- console errors: 0
+- duplicate DOM IDs: 0
+- E.check clean
+
+BIG UI probe:
+- handType = BIG
+- okeyMode = INDICATOR
+- numbered indicator shown (sample: blue 10)
+- actual Okey shown (blue 11)
+- caption = 'BÜYÜK EL · GÖSTERGE'
+- no special ★ indicator mode
+
+Opened-meld visual stress:
+- 7-tile processed meld order equals engine UID order exactly
+- processAdds = 2
+- 300 sync/layout cycles
+- meldVisualAudit.ok = true
+- computed transforms on all real meld tiles = none
+- transformLeak = []
+- computedTransformLeak = []
+- transientClassLeak = []
+- geometryMismatch = []
+- faceMismatch = []
+- engineDup = []
+- visDup = []
+- middle body process target = null
+- legal right endpoint target accepted
+- illegal third endpoint intent is detected but rejected (does not free-drop)
+
+============================================================
+5. 500 FULL BOT MATCH STRICT TEST
+============================================================
+
+Method: 20 fresh Node batches x 25 full games; E.check after EVERY bot action.
+
+TOTAL:
+- games: 500 / 500
+- hands: 4,500
+- bot actions: 376,461
+- failures: 0
+
+INDIVIDUAL:
+- 250 games
+- 2,250 hands
+- 189,028 actions
+- failures: 0
+
+TEAM:
+- 250 games
+- 2,250 hands
+- 187,433 actions
+- failures: 0
+
+Aggregate row hash:
+47e69ea07f61097a41c883fc25d2599b2805f3b25b4e52f4183de80933c80571
+
+============================================================
+6. DETERMINISTIC CORE REGRESSION
+============================================================
+
+Run 1 and Run 2 are byte-identical JSON outputs.
+File SHA-256 both runs:
+529b19c5028a61b83418b9df81f9df9932d8ae43c63dab9525f749c906aaf8f6
+
+INDIVIDUAL:
+- 100 / 100 games
+- 900 hands
+- 77,715 actions
+- failures: 0
+- result hash: 5dc2b00a2142329b414a280856a8e910a0bb5083a487309bee789d5e5fa8a058
+
+TEAM:
+- 100 / 100 games
+- 900 hands
+- 75,409 actions
+- failures: 0
+- result hash: 26d3ba91841acc468b207aa23b441740201832bf5c42c0c3a8e27b2c55221b50
+
+============================================================
+7. SERVER-AUTHORITY / MULTIPLAYER REGRESSION
+============================================================
+
+Post-v152 authority tests PASS:
+- direct authority suite
+- real Node HTTP authority
+- browser/client SDK
+- 4-client TEAM HTTP roundtrip (47 authoritative actions)
+- disconnect/reconnect + temporary bot takeover
+
+Authority stress:
+- 10 rooms / 90 hands / 7,726 actions / failures 0
+- extended 20 rooms / 180 hands / 15,041 actions / failures 0
+
+G17MP/1 action envelope remains compatible. Rule semantics changed inside the canonical authority engine; multiplayer protocol delta is documented in MULTIPLAYER_PROTOCOL_v152.md and RULE_DELTA_v152.md.
+
+============================================================
+8. STATIC CONFLICT GUARD
+============================================================
+
+PASS:
+- DOM IDs: 130 / 130 unique; duplicate 0
+- embedded AVIF assets: 9 vs parent 9; exact SHA list match
+- pre-engine prefix exact except BUILD string
+- CSS/style blocks byte-equivalent to v151
+- premium meta/menu region exact except intentionally updated visible Rules text
+- v149 presentation guard token counts unchanged:
+  * translate3d: 2 -> 2
+  * will-change: 5 -> 5
+  * .tr:not(.mld).motion-land: 2 -> 2
+  * meldVisualAudit: 2 -> 2
+  * layoutMelds(): 9 -> 9
+  * computedTransformLeak: 5 -> 5
+- icon-192.png exact to v151
+- icon-512.png exact to v151
+- manifest.webmanifest exact to v151
+- netlify.toml exact to v151
+- server/server.cjs exact to v151
+- service-worker cache namespace = v152
+- visible rules text reflects v152 behavior
+
+Residual removed legacy runtime paths:
+- BIG_FAKE: 0
+- FAKE_INDICATOR_BIG: 0
+- TAKE_KEEP_PENALTY: 0
+- femaleSixSplitPlan: 0
+- activateMeldHold: 0
+
+Engine and bot blocks changed intentionally only where v152 rule semantics require the same canonical fake/meld/side-take behavior in game + bot evaluation.
+
+============================================================
+9. SYNTAX / PACKAGE PRECHECK
+============================================================
+
+PASS before packaging:
+- all inline index.html scripts via node --check
+- multiplayer-client.js
+- multiplayer-bridge.js
+- sw.js
+- server/*.cjs
+- manifest.webmanifest JSON parse
+- server/package.json JSON parse
+
+============================================================
+10. DEPLOYMENT BOUNDARY
+============================================================
+
+Unchanged from v151:
+- Netlify Drop can serve the static client/PWA only.
+- Real G17MP multiplayer authority requires server/server.cjs on a Node-capable HTTPS host.
+- v152 does not add persistent/distributed room storage; that remains a later backend task.
+
+============================================================
+FINAL VERDICT
+============================================================
+
+PASS.
+No known Conflict Guard failure remains for the three user-locked v152 rule changes.
+
+Final clean-package verification:
+- packaged files: 45
+- ZIP re-extraction filename set: exact
+- per-file SHA-256 comparison: ALL_SAME
+- extracted JS/SW/server syntax: PASS
+- extracted JSON parse: PASS
+- extracted targeted v152 rule suite: PASS
+
+Eligible for canonical promotion.

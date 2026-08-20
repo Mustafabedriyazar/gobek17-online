@@ -1,0 +1,38 @@
+GÖBEK17 v166 — SINGLE-FILE PREVIEW SAFE QA
+
+Parent: v165
+Build: gobek17-166-single-file-preview-safe
+
+ROOT CAUSE ADDRESSED
+- Android/Honor file-manager may hand only index.html to Chrome via content://.
+- v165 required sibling multiplayer-client.js and multiplayer-bridge.js, so the bridge could be absent in that preview path.
+
+V166 FIX
+- Exact multiplayer SDK and table bridge are embedded in index.html.
+- No external multiplayer <script src> dependency remains.
+- Non-HTTP local preview has no implicit backend endpoint.
+- Private-room create/join first probes /health/live. If no G17 authority is reachable, UI says ONLINE SUNUCU BAĞLI DEĞİL while offline gameplay remains usable.
+- HTTP/HTTPS + explicit backend deployment remains supported.
+
+QA
+- Isolated non-HTTP single-document preview (blob:) : PASS
+- G17MP loaded: PASS
+- G17NET loaded: PASS
+- MULTIPLAYER KÖPRÜSÜ YÜKLENMEDİ absent: PASS
+- Static HTTPS/no-backend health-gate VM: PASS
+- v152 targeted rules: PASS
+- v153 side-take: PASS
+- v157 immutable meld body / +120: PASS
+- v157 authority: PASS
+- 30 consecutive hand ends: visible 30/30, penalty blocking 0/30, correct action 30/30, continuation 30/30
+- Bot regression: 50 games / 450 hands / 38563 actions / 0 failures
+- v162/v163/v164/v165 server npm regression chain: PASS
+
+CANONICAL HASH GUARDS
+- Engine: 6d7dd3ddd8229d3a186294a204e6357b9b08ce9e6c23e67b94fb4abc7f8e4909
+- Strategic bot: c77ef4d9a75cf6e9a33a0cd46eeef1bc0079f980d50d6b4dfa3f441368cb2460
+- Server engine factory: 996f912adcd87796d66fa498276c08357fef7ddad8ef1bb117f90a3b832e5883
+- Server bot factory: 0eb0892dd46b65bf4cc16e7abf34829a9ea900231c789bd4cefab8ad4535c6ff
+
+NOTE
+The container cannot launch an actual Honor content:// URI. The relevant failure condition was reproduced as an isolated non-HTTP single-document where sibling JS is unavailable; because both runtime scripts are now embedded, that condition passes.

@@ -1,0 +1,52 @@
+OKEY17 / GÖBEK17 — QA / CONFLICT GUARD REPORT
+Build: gobek17-156-penalty-screen-live-sync
+Parent: gobek17-155-live-side-take-penalty-notify.zip
+Date: 2026-08-19
+Status: PASS
+
+ROOT CAUSE / UX FINDING
+- v155 notification was too small/peripheral and focused mainly on side-take x10 penalties.
+- User requested an unmistakable separate penalty screen.
+- v156 uses a centered large modal-like penalty presentation with a darkened table backdrop.
+
+TRIGGERS
+- PROCESS
+- PROCESS_PAIR
+- DISCARD_TAKEN_USED
+- DISCARD_TAKE_UNUSED
+- DISCARD_TAKE_KEPT
+
+DISPLAY
+- penalty eater name
+- large +amount
+- reason label
+- pair process ×20 seal
+- 3 second countdown bar
+- auto-hide after 3000 ms
+- Live Report mini pulse and simultaneous feed refresh
+
+BROWSER QA
+Viewports:
+- 768x356 PASS
+- 915x412 PASS
+- 1536x712 PASS
+- 1842x854 PASS
+Assertions:
+- visible immediately
+- correct player name / amount / reason
+- card remains large enough on mobile
+- aria-hidden=false while visible
+- hidden after >3 seconds
+- PROCESS_PAIR uses ×20 presentation
+- live report feed synchronization PASS
+- page/console errors: 0
+
+RULE REGRESSION
+- qa/test-v152-rules.cjs: V152_TARGETED_RULES_PASS
+- qa/test-v153-side-take.cjs: V153_SIDE_TAKE_KEEP_OR_RETURN_PASS
+
+SYNTAX
+- index.html inline scripts: PASS
+- sw.js: PASS
+- multiplayer-bridge.js: PASS
+- multiplayer-client.js: PASS

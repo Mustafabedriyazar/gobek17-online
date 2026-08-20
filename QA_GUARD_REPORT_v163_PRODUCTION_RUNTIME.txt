@@ -1,0 +1,84 @@
+OKEY17 / GÖBEK17 — QA / CONFLICT GUARD REPORT
+Build: gobek17-163-production-runtime-foundation
+Parent: gobek17-162-multiplayer-production-hardening.zip
+Date: 2026-08-20
+
+SCOPE
+- Production runtime / multiplayer infrastructure only.
+- No canonical gameplay-rule change.
+
+FOUND / FIXED DURING v163
+1) Multi-replica without shared ownership could permit split-brain room writes.
+   Fix: Redis room-owner lease + monotonic fencing token. Stale owner persistence is rejected.
+2) Non-owner HTTP routing had no client recovery path.
+   Fix: ROOM_OWNER_MISMATCH includes ownerUrl/ownerInstanceId; SDK retries once and persists moved endpoint.
+3) Redis durability needed to precede local SSE mutation broadcast.
+   Fix: Redis mutations suppress room broadcast until fenced persistence succeeds, then flush.
+4) Redis failover-restored rooms needed the same reconnect grace / bot takeover boundary as process restart.
+   Fix: recovery grace armed on lazy room restore.
+5) SSE-close disconnect/bot mutations also need Redis durability.
+   Fix: disconnect and tournament expiry paths persist through the fenced store.
+6) Generic IP-only rate limiting could throttle four valid players behind the same NAT during snapshot-heavy play.
+   Fix: authenticated buckets use IP + seat bearer; unauthenticated create/join remains IP scoped.
+7) v163 session migration initially left the v162 reconnect key behind on explicit leave.
+   Fix: clearSession removes v163 and legacy v162 entries.
+8) Production misconfiguration needed fail-closed readiness.
+   Fix: wildcard production CORS, multi-replica file mode, missing owner URL, and missing Redis URL fail readiness.
+9) Redis-mode rejected action IDs also need durable fingerprint memory.
+   Fix: Redis action route persists the room even for canonical 4xx action results, so rejected clientActionId reuse remains protected after failover.
+
+TARGETED QA
+- v152 targeted rules: PASS
+- v153 side-take: PASS
+- v157 immutable body engine: PASS (+120 example)
+- v157 authority: PASS
+- direct authority: PASS
+- v162 durable restart/idempotency: PASS
+- HTTP authority: PASS
+- client SDK: PASS
+- 4-client HTTP roundtrip: PASS
+- disconnect/reconnect + replaced session: PASS
+- v163 fake shared Redis two-owner fencing: PASS (fence 1 -> fence 2; stale save rejected)
+- v163 owner-aware SDK retry: PASS
+- production runtime guard unit test: PASS
+- authority stress: 10 rooms / 90 hands / 7,298 bot actions: PASS
+
+BROWSER QA
+- 768x356 PASS
+- 915x412 PASS
+- 1536x712 PASS
+- 1842x854 PASS
+- central penalty FIFO/live report: PASS
+- immutable middle process + FREE-grid safety: PASS
+- atomic 47->40 meld reflow: PASS
+- 120 repeated layout cycles: PASS
+- ledger delta/repeated ord: PASS
+- page/console errors: 0
+
+30 CONSECUTIVE HAND END QA
+- hands: 30
+- end panel visible/unblocked: 30/30
+- penalty blocking: 0/30
+- correct DEVAM ET/BAŞLAT: 30/30
+- continuation/new match transition: 30/30
+- actions: 2,440
+- errors: 0
+
+BOT REGRESSION
+- INDIVIDUAL: 25 games / 225 hands / 19,435 actions / failures 0
+- TEAM: 25 games / 225 hands / 19,302 actions / failures 0
+- TOTAL: 50 games / 450 hands / 38,737 actions / failures 0
+
+CANONICAL BLOCK PRESERVATION
+- engine region byte-identical to v162
+- engine SHA-256: 6d7dd3ddd8229d3a186294a204e6357b9b08ce9e6c23e67b94fb4abc7f8e4909
+- bot region byte-identical to v162
+- bot SHA-256: c77ef4d9a75cf6e9a33a0cd46eeef1bc0079f980d50d6b4dfa3f441368cb2460
+
+DEPLOYMENT BOUNDARY
+- File mode remains single-node durable.
+- Redis mode supplies shared room persistence and fenced single-owner failover.
+- Multi-replica production still requires real owner-addressable/sticky routing at the deployment layer.
+- User account identity, moderation, Redis HA/backups, external alerting/log aggregation, secrets management, and relational player/economy/history persistence remain separate platform work.
+
+VERDICT: PASS for v163 production-runtime foundation.

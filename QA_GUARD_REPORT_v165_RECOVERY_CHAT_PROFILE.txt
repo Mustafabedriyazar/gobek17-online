@@ -1,0 +1,80 @@
+OKEY17 / GÖBEK17 — QA / CONFLICT GUARD REPORT
+Build: gobek17-165-recovery-chat-profile-ops
+Parent: gobek17-164-account-security-moderation.zip
+Date: 2026-08-20
+Status: PASS — eligible for packaging/promotion
+
+1. v165 TARGETS
+- Backup-code password recovery, old-session revocation, recovery-code rotation.
+- Server-authoritative chat with real mute enforcement and chat rate limit.
+- Chat report/message moderation.
+- Durable public/private player profiles.
+- Idempotent wallet admin transaction foundation.
+- Idempotent completed-match stat settlement.
+
+2. SECURITY / AUTH QA
+PASS:
+- register returns 8 recovery codes; plaintext recovery code absent at rest.
+- invalid recovery rejected.
+- valid recovery resets password, revokes prior access, rotates codes.
+- used old recovery code cannot be reused.
+- authenticated password change revokes prior session.
+- existing v164 register/login/refresh/reclaim/ban/report tests PASS.
+- Redis identity compatibility test PASS.
+- account restart/reclaim test PASS.
+
+3. CHAT / MODERATION QA
+PASS:
+- chat sender name is server-owned; spoofed client name ignored.
+- control characters/extra whitespace normalized.
+- message reaches another seat through authoritative snapshot chat history.
+- muteUntil blocks chat with ACCOUNT_MUTED.
+- clearing sanction restores chat.
+- CHAT report with messageId accepted.
+- admin chat-delete marks authoritative message moderated/deleted.
+- browser async chat transport does not optimistic-echo rejected messages and de-duplicates server IDs.
+
+4. PROFILE / ECONOMY QA
+PASS:
+- default private wallet = 100000 chips / 500 gems.
+- bio/avatar persistence.
+- public profile excludes wallet.
+- repeated admin wallet txId applies once only.
+- completed-match stats settle once even when snapshot is retried.
+- v165 does not auto-settle chips/gems from gameplay.
+
+5. GAMEPLAY / UI REGRESSION
+PASS:
+- v152 targeted rules.
+- v153 side-take rules.
+- v157 immutable-body / illegal process +120.
+- browser 768x356, 915x412, 1536x712, 1842x854; page/console errors 0.
+- 30 consecutive hand-end panels: visible 30/30, penalty blocking 0/30, correct continue/start 30/30.
+- auth UI contains login/register/recovery controls and no client player-name spoof field.
+
+6. MULTIPLAYER REGRESSION
+PASS:
+- direct authority.
+- v162 hardening.
+- v163 runtime/fencing/production guards.
+- HTTP authority.
+- client SDK.
+- 4-client HTTP roundtrip: 47 actions.
+- disconnect/reconnect.
+- process restart persistence.
+- v164 auth/moderation/client/restart tests.
+
+7. BOT / AUTHORITY STRESS
+PASS:
+- Individual: 25 games / 225 hands / 18,830 actions / 0 failures.
+- Team: 25 games / 225 hands / 19,037 actions / 0 failures.
+- TOTAL bot regression: 50 games / 450 hands / 37,867 actions / 0 failures.
+- Authority stress: 10 games / 90 hands / 7,514 bot actions.
+
+8. CANONICAL HASH GUARD
+- index canonical engine block SHA-256: 6d7dd3ddd8229d3a186294a204e6357b9b08ce9e6c23e67b94fb4abc7f8e4909
+- index strategic bot block SHA-256: c77ef4d9a75cf6e9a33a0cd46eeef1bc0079f980d50d6b4dfa3f441368cb2460
+- server/engine-factory.cjs is byte-identical to v164.
+- server/bot-factory.cjs is byte-identical to v164.
+
+FINAL VERDICT: PASS.

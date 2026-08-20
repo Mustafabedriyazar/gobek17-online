@@ -1,0 +1,74 @@
+OKEY17 / GÖBEK17 — QA / CONFLICT GUARD REPORT
+Build: gobek17-159-conflict-guard-hardening
+Parent: gobek17-158-rack-plus15.zip
+Date: 2026-08-20
+Status: PASS
+
+1) DEFECTS FOUND AND FIXED
+- v158 internal BUILD / SW / multiplayer build identity still said preview -> fixed.
+- central penalty screen overwrote the first event when two penalties occurred in one logical action -> fixed with FIFO presentation queue; every event gets 3000 ms.
+- server-authoritative snapshot ledger updated Live Report state but did not independently trigger the central penalty notification pipeline for new remote penalties -> fixed.
+- rolling server ledger lacked canonical `ord`, which could make repeated identical penalties ambiguous during delta detection -> fixed by additive snapshot `ord`.
+- stale opened-meld long-press hint contradicted the immutable-meld rule -> corrected.
+
+2) BROWSER / PRESENTATION QA
+Viewports:
+- 768x356
+- 915x412
+- 1536x712
+- 1842x854
+
+PASS:
+- duplicate DOM ids: 0
+- page/console errors: 0
+- rack geometry: 78x108 tiles; canonical 13+2 stress layout; overlap 0
+- central penalty screen visible and legible
+- two-penalty queue: first PROCESS +70 shown; second side-take +90 queued; second shown after first 3 seconds; hidden after both complete
+- Live Report feed contains both events immediately
+- illegal opened-meld middle insertion stays illegal; blue-12 style scenario self-penalty x10 remains 120
+- FREE-grid placement remains outside meld safety envelope
+- opened-meld visual audit PASS
+- exact atomic reflow 47px -> 40px tier: uniform first-frame pitch, no transition/transform leak
+- 120 repeated sync/layout cycles: PASS
+- authoritative ledger delta: initial history replay 0; unchanged 0; append 1; rolling-50 shift 1; identical-looking repeated penalty distinguished by ord
+
+3) CANONICAL RULE REGRESSION
+PASS:
+- qa/test-v152-rules.cjs
+- qa/test-v153-side-take.cjs
+- qa/test-v157-immutable-body.cjs
+- qa/test-v157-authority.cjs
+
+4) SERVER AUTHORITY REGRESSION
+PASS:
+- direct authority suite
+- HTTP authority suite
+- client SDK suite
+- 4-client roundtrip suite (47 authoritative actions)
+
+5) BOT REGRESSION
+Post-patch:
+- INDIVIDUAL: 25/25 full matches, 225 hands, 18,904 actions, failures 0
+- TEAM: 25/25 full matches, 225 hands, 18,946 actions, failures 0
+- TOTAL: 50 full matches, 450 hands, 37,850 actions, failures 0
+
+6) CONFLICT GUARD
+Canonical engine block SHA-256 unchanged from v158:
+6d7dd3ddd8229d3a186294a204e6357b9b08ce9e6c23e67b94fb4abc7f8e4909
+
+Strategic bot block SHA-256 unchanged from v158:
+c77ef4d9a75cf6e9a33a0cd46eeef1bc0079f980d50d6b4dfa3f441368cb2460
+
+Unchanged exact parent files include:
+- icon-192.png
+- icon-512.png
+- manifest.webmanifest
+- netlify.toml
+- server/engine-factory.cjs
+- server/bot-factory.cjs
+- server/server.cjs
+
+Intentional server change:
+- server/authority.cjs: snapshot ledger now includes `ord` only.
+
+FINAL VERDICT: PASS — eligible for canonical promotion to v159.

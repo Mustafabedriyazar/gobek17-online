@@ -1,0 +1,75 @@
+OKEY17 / GÖBEK17 — QA / CONFLICT GUARD REPORT
+Build: gobek17-153-side-take-keep-or-return
+Parent canonical: gobek17-152-standard-fake-okey-immutable-meld-side-take.zip
+Parent SHA-256: ee3efab5d9f800aa1ccd4176b515b8e9d3b0e4e49d1d7f60925783f474417ae9
+Date: 2026-08-19
+Status: PASS
+
+USER-LOCKED RULE
+- Side-taken tile penalty is always represented tile value x10 to the taker.
+- The exact side-taken tile may NOT be discarded to the right.
+- Legal resolutions:
+  A) use it in legal OPEN/PER/PROCESS => x10,
+  B) return exact tile to source/left discard => x10, turn ends,
+  C) keep it in rack and discard ANOTHER rack tile => x10, normal turn end.
+- TAKE_CANCEL = return + x10; no free escape.
+
+ROOT CAUSE
+v152 a_discard() treated any discard attempt while pending as an implicit TAKE_RETURN_PENALTY transaction. That forced the side tile back to source and prevented the new keep-in-rack + discard-other option. v153 splits pending resolution into explicit return and keep paths, and rejects pending.uid as a right-side discard.
+
+TARGETED ENGINE TEST
+qa/test-v153-side-take.cjs => V153_SIDE_TAKE_KEEP_OR_RETURN_PASS
+Covered:
+- return path exact tile + x10 self penalty
+- pending tile right-discard blocked with no state mutation
+- keep pending in rack + discard different tile + same x10
+- TAKE_CANCEL cannot evade
+- successful side-tile opening still x10
+
+REGRESSION
+qa/test-v152-rules.cjs => V152_TARGETED_RULES_PASS
+- fake Okey standard identity preserved
+- immutable meld preserved
+- processAdds <= 2 preserved
+- prior side-return path preserved
+
+BROWSER / PRESENTATION
+qa/test-browser-v153.py => PASS
+Viewports:
+- 768x356
+- 915x412
+- 1536x712
+- 1842x854
+Results:
+- page errors 0
+- console errors 0
+- E.check PASS
+- immutable meld visual audit PASS
+- pending right throw rejected
+- return path PASS
+- keep+other-discard path PASS
+
+BOT REGRESSION
+Individual: 50/50 full matches, 450 hands, 38,363 actions, failures 0
+Team:       50/50 full matches, 450 hands, 38,549 actions, failures 0
+Additional smoke batches: 25 individual + 25 team, failures 0
+
+SERVER AUTHORITY
+- direct authority suite PASS
+- client SDK PASS
+- 4-client roundtrip PASS (47 authoritative actions)
+- disconnect/reconnect PASS
+- authority stress PASS: 10 games / 90 hands / 7,378 bot actions
+
+SYNTAX
+PASS:
+- all inline index.html scripts
+- multiplayer-client.js
+- multiplayer-bridge.js
+- sw.js
+- server/engine-factory.cjs
+- server/authority.cjs
+- server/bot-factory.cjs
+
+FINAL VERDICT
+PASS. v153 is eligible for canonical promotion.

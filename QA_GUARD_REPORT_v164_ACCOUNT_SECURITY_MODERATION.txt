@@ -1,0 +1,177 @@
+OKEY17 / GÖBEK17 — QA / CONFLICT GUARD REPORT
+Build: gobek17-164-account-security-moderation
+Parent canonical: gobek17-163-production-runtime-foundation.zip
+Date: 2026-08-20
+Status: PASS — eligible for canonical promotion
+
+============================================================
+1. SCOPE
+============================================================
+
+v164 changes platform/security/backend admission only. No canonical gameplay-rule change.
+
+Added:
+- native username/password accounts (scrypt + random salt),
+- opaque rotating access/refresh sessions; hashes only at rest,
+- authenticated room create/join in production,
+- authenticated seat binding + server-owned display name,
+- account reclaim that rotates the room seat bearer,
+- browser seat secret sessionStorage-only policy + legacy localStorage secret scrub,
+- player report API,
+- admin sanction/clear/report APIs,
+- live room-operation ban enforcement,
+- JSONL security audit with hashed IP and no secrets,
+- Redis identity/session/moderation store for multi-replica deployments,
+- production fail-closed auth/password/admin-token guards.
+
+============================================================
+2. CANONICAL GAMEPLAY CONFLICT GUARD
+============================================================
+
+PASS.
+- Engine block SHA-256: 6d7dd3ddd8229d3a186294a204e6357b9b08ce9e6c23e67b94fb4abc7f8e4909
+- Bot block SHA-256: c77ef4d9a75cf6e9a33a0cd46eeef1bc0079f980d50d6b4dfa3f441368cb2460
+- Both byte-identical to v163 canonical blocks.
+
+Targeted gameplay rule suites:
+- v152 targeted rules: PASS
+- v153 side-take keep/return: PASS
+- v157 immutable opened-meld body: PASS
+- v157 authoritative bad-process x10: PASS
+
+============================================================
+3. AUTH / SESSION / MODERATION QA
+============================================================
+
+PASS:
+- register success + duplicate username rejection,
+- generic invalid-credential login failure,
+- scrypt password hash persisted; raw password absent,
+- access/refresh raw tokens absent from persistence,
+- refresh rotation invalidates paired old access + old refresh,
+- authenticated room join ignores spoofed client display name,
+- account-to-seat binding,
+- account reclaim rotates seat token; old bearer rejected,
+- authenticated player report + admin report listing,
+- admin game ban blocks existing seat bearer and future login,
+- sanction clear restores login,
+- production auth/password/admin-token readiness guards,
+- Redis identity/session/sanction behavior,
+- full Node process restart preserves account session + room account binding + reclaim path.
+
+============================================================
+4. BROWSER / UI QA
+============================================================
+
+Viewports:
+- 768x356 PASS
+- 915x412 PASS
+- 1536x712 PASS
+- 1842x854 PASS
+
+0 page/console errors.
+Preserved:
+- rack 13+2 layout, overlap 0,
+- central FIFO penalty screen,
+- illegal middle process +120,
+- FREE-grid meld safety envelope,
+- atomic 47->40 opened-meld reflow,
+- 120 repeated layout cycles,
+- ledger rolling-window delta/dedup behavior.
+
+Auth UI probe:
+- account username field present,
+- password field present,
+- new-account display name field present,
+- login/register controls present,
+- old unauthenticated room-name spoof field absent from protected create flow.
+
+30 consecutive bot-played hand ends:
+- end overlay visible/unblocked: 30/30
+- penalty blocking: 0/30
+- correct DEVAM ET / BAŞLAT: 30/30
+- transition success: 30/30
+- 27 DEVAM ET / 3 BAŞLAT
+- actions: 2,409
+- errors: 0
+
+============================================================
+5. MULTIPLAYER / AUTHORITY QA
+============================================================
+
+PASS:
+- direct authority suite,
+- v162 durability/idempotency hardening,
+- v163 Redis fenced ownership + owner routing,
+- HTTP authority,
+- browser/client SDK,
+- 4-client roundtrip,
+- disconnect/reconnect + replacement-session guard,
+- v162 process restart test,
+- v164 account client SDK + seat reclaim,
+- v164 account process restart + reclaim,
+- v164 file identity persistence,
+- v164 Redis identity store.
+
+Authority stress:
+- 10 rooms
+- 90 hands
+- 7,549 bot actions
+- failures: 0
+
+============================================================
+6. BOT REGRESSION
+============================================================
+
+INDIVIDUAL:
+- 25 games
+- 225 hands
+- 19,026 actions
+- failures: 0
+
+TEAM:
+- 25 games
+- 225 hands
+- 18,899 actions
+- failures: 0
+
+TOTAL:
+- 50 games
+- 450 hands
+- 37,925 actions
+- failures: 0
+
+============================================================
+7. SECURITY / STORAGE NOTES
+============================================================
+
+- Password: salted scrypt hash only.
+- Account access/refresh: random opaque bearer; SHA-256 hash only at rest.
+- Seat bearer: remains SHA-256 hash only in room persistence.
+- Browser: active seat secret stored in sessionStorage only; localStorage keeps non-secret resume hint.
+- Legacy v162/v163 localStorage bearer entries are scrubbed on v164 bridge startup.
+- Security audit excludes password/access/refresh/seat secrets; IP is short hash only.
+- Production requires auth=required, password minimum >=10 and (when moderation enabled) 32+ char admin token.
+
+============================================================
+8. DEPLOYMENT BOUNDARY
+============================================================
+
+v164 is a concrete closed-beta native account/security foundation.
+Still deployment/platform work, not gameplay work:
+- email/password recovery or external IdP if desired,
+- Redis HA/backups,
+- secret-manager wiring,
+- external log aggregation/alerting,
+- WAF/DDoS policy,
+- moderation operator UI,
+- privacy/data-retention policy,
+- server-authoritative chat (muteUntil is metadata only until then),
+- optional relational player/economy/history persistence.
+
+============================================================
+FINAL VERDICT
+============================================================
+
+PASS.
+No known canonical gameplay regression or v164 account/security Conflict Guard failure remains.

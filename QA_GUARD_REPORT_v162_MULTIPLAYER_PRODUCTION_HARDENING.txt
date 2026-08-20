@@ -1,0 +1,55 @@
+OKEY17 / GÖBEK17 — QA / CONFLICT GUARD REPORT
+Build: gobek17-162-multiplayer-production-hardening
+Parent: gobek17-161-final-gameplay-ui-polish.zip
+Date: 2026-08-20
+
+STATUS: PASS — eligible for canonical promotion.
+
+1) GAMEPLAY PRESERVATION
+- Canonical engine block byte-identical to v161.
+- Canonical bot block byte-identical to v161.
+- v152 rule suite PASS.
+- v153 side-take suite PASS.
+- v157 immutable-body / BAD_PROCESS suite PASS.
+
+2) V162 BACKEND HARDENING
+- Durable registry save/load PASS.
+- Process restart room recovery PASS.
+- Restart revision/state preservation PASS.
+- Duplicate action after restart does not double-commit PASS.
+- Same action id + different fingerprint => ACTION_ID_REUSE_MISMATCH PASS.
+- Idempotent join retry PASS.
+- Raw seat bearer token absent from persistence file PASS.
+- Replaced SSE stream receives no future private snapshots PASS.
+- Replaced connection /snapshot access rejected PASS.
+- Client old-revision/event/time snapshot guard PASS.
+- Restore-time engine invariant PASS.
+
+3) MULTIPLAYER REGRESSION
+- Direct authority PASS.
+- HTTP authority PASS.
+- Browser client SDK PASS.
+- 4-client HTTP roundtrip PASS (47 authoritative actions).
+- Disconnect/reconnect + temporary bot takeover PASS.
+- Authority stress: 10 rooms / 90 hands / 7,286 bot actions PASS.
+
+4) GAMEPLAY/BROWSER REGRESSION
+- 768x356 PASS.
+- 915x412 PASS.
+- 1536x712 PASS.
+- 1842x854 PASS.
+- penalty FIFO/live report PASS.
+- immutable middle process +120 PASS.
+- FREE-grid safety envelope PASS.
+- atomic meld reflow PASS.
+- 30 consecutive hand endings: panel visible 30/30; penalty blocking 0/30; correct continue/start 30/30; transition 30/30.
+
+5) BOT REGRESSION
+- INDIVIDUAL: 25 games / 225 hands / 19,199 actions / 0 failures.
+- TEAM: 25 games / 225 hands / 18,944 actions / 0 failures.
+- TOTAL: 50 games / 450 hands / 38,143 actions / 0 failures.
+
+6) DEPLOYMENT BOUNDARY
+- v162 is single-process / single-node durable authority.
+- Persistent filesystem/volume must back G17_STATE_FILE or G17_DATA_DIR for host-replacement durability.
+- Multi-replica shared-state routing, Redis/Postgres, account identity, TLS/observability/managed deployment remain later infrastructure work.

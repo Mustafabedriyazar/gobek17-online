@@ -1,0 +1,80 @@
+OKEY17 / GÖBEK17 — QA / CONFLICT GUARD REPORT
+Build: gobek17-157-immutable-meld-body-guard
+Parent: gobek17-156-penalty-screen-live-sync.zip
+Parent ZIP SHA-256: a57feee640f39062b0a2d733e6f4ece9710ab14910e78136c999d2434dd6beae
+Date: 2026-08-20
+
+USER VIDEO ROOT CAUSE
+- Reproduced from 43826.mp4.
+- The blue 12 was not actually being legally inserted into the opened meld.
+- processDropTarget correctly rejected middle insertion, BUT processIntentNear still measured only distance to left/right endpoints.
+- A release over the middle of a sufficiently long meld therefore missed the PROCESS-intent guard and fell through to normal FREE-board placement.
+- This explains both symptoms: illegal tile remaining over/near 10-11-Okey-13 and the apparent crooked/stuck grid arrangement.
+
+V157 FIX
+1) Full meld body guard:
+   - actual opened meld rectangle + small margin is PROCESS intent, regardless of legality.
+   - middle-body drops cannot fall through to FREE.
+2) Authoritative illegal-process penalty:
+   - BAD_PROCESS_ATTEMPT = attempted represented tile value x10 to actor.
+   - tile remains at source; meld UID order remains byte-for-byte unchanged in the transaction.
+3) FREE-board isolation:
+   - freeRects now includes a per-level reserved envelope around each opened meld/plate.
+   - no grid-cell snapping introduced; free-form grid semantics preserved.
+4) UI:
+   - v156 center penalty screen recognizes BAD_PROCESS_ATTEMPT as `HATALI İŞLEK · TAŞ ×10`.
+   - Live Report feed recognizes the same ledger event.
+5) Multiplayer:
+   - new BAD_PROCESS_ATTEMPT G17MP/1 action handled by server authority.
+
+TARGETED ENGINE QA
+- Blue 10-11-Okey(rep=12)-13 baseline valid.
+- Blue 12 canFeedTileToMeld = false.
+- badProcessPenalty = 120.
+- opened meld UID list unchanged.
+- attempted blue 12 remains in actor rack.
+- actor handPenalty increases by exactly 120.
+- engine E.check PASS.
+
+BROWSER QA
+Viewports: 768x356, 915x412, 1536x712, 1842x854.
+- page errors: 0
+- console errors: 0
+- duplicate DOM IDs: 0
+- middle body intent detected: true
+- legal process target for middle blue 12: null
+- reserved meld envelope present: true
+- FREE fallback position does not overlap reserved envelope: true
+- penalty screen visible immediately: +120 / HATALI İŞLEK · TAŞ ×10
+- penalty screen hidden after >3 seconds: true
+- real meld tile pitch uniform
+- computed transforms: none
+- transitions: none
+- meldVisualAudit: PASS
+- E.check: PASS
+
+SERVER AUTHORITY QA
+- BAD_PROCESS_ATTEMPT committed through AuthoritativeRoom.
+- room rev incremented.
+- snapshot ledger last event = BAD_PROCESS_ATTEMPT / source actor / target actor / amount 120.
+- meld unchanged and attempted tile retained.
+- existing direct authority test suite PASS.
+- existing HTTP authority suite PASS.
+- existing client SDK suite PASS.
+
+REGRESSION
+- v152 targeted rules PASS.
+- v153 side-take rules PASS.
+- 25 INDIVIDUAL full bot matches: 225 hands / 19,349 actions / failures 0.
+- 25 TEAM full bot matches: 225 hands / 18,958 actions / failures 0.
+
+STATIC / BLOCK CHECK
+- Parent engine block SHA-256: f5ed93372d4c224afc152ed038b26918eae686227b8f8d40280bd67dd4461115
+- v157 engine block SHA-256: 6d7dd3ddd8229d3a186294a204e6357b9b08ce9e6c23e67b94fb4abc7f8e4909
+  (intentional rule addition: BAD_PROCESS_ATTEMPT)
+- Bot block unchanged SHA-256: c77ef4d9a75cf6e9a33a0cd46eeef1bc0079f980d50d6b4dfa3f441368cb2460
+- server/bot-factory.cjs unchanged.
+- icon-192.png, icon-512.png, manifest.webmanifest, netlify.toml unchanged.
+
+VERDICT
+PASS — eligible for packaging/promotion.

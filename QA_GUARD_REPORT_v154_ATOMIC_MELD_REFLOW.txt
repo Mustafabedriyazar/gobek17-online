@@ -1,0 +1,145 @@
+OKEY17 / GÖBEK17 — QA / CONFLICT GUARD REPORT
+Build: gobek17-154-atomic-meld-reflow
+Parent canonical: gobek17-153-side-take-keep-or-return.zip
+Date: 2026-08-19
+Status: PASS — eligible for packaging/promotion
+
+============================================================
+1. USER-REPORTED VISUAL DEFECT
+============================================================
+Observed case matches a layout-tier boundary in the owner's per area.
+Representative state: one 5-tile meld + two 4-tile melds; process a 6th tile into the first meld.
+
+v153 root reproduction at 1536x712:
+- before feed tile tier: 47x65
+- after feed tile tier: 40x56
+- width/height snapped immediately
+- left/top still had 160 ms CSS transition
+- immediate screen-space pitches inside the 6-tile meld:
+  34.0703125, 34.0703125, 34.0703125, 34.0703125, 9.734375
+- final settled pitch after transition:
+  29.203125 uniformly
+
+The last tile therefore appeared on top of / too close to its neighbor during the first frame. Low-FPS Android made the defect visually much more obvious.
+
+============================================================
+2. ROOT CAUSE
+============================================================
+Real engine-owned meld nodes inherited global .tr left/top transitions.
+When flowZone() changed size tier or row after PROCESS:
+- size changed immediately,
+- old tiles' positions interpolated from stale geometry,
+- newly created processed tile appeared at final geometry,
+- plate geometry also used final bounds immediately.
+
+This created a temporary mixed-geometry meld despite engine state being correct.
+The old meldVisualAudit could not detect it because inline target left/top values were already correct; getBoundingClientRect was still mid-transition.
+
+============================================================
+3. v154 FIX
+============================================================
+canonicalizeMeldTile() now pins:
+  transition: none !important
+for real .tr.mld nodes in addition to the existing transform/translate/rotate/scale pins.
+
+Result:
+- flowZone remains the single geometry authority,
+- all real meld tiles snap atomically to final left/top/width/height,
+- process animation remains on motion-flight clones only,
+- no gameplay mutation was introduced,
+- no forced FREE-board fallback or meld split was added.
+
+============================================================
+4. EXACT BOUNDARY RETEST
+============================================================
+v154 same state, same viewport, same mutation:
+- before: 47x65
+- after: 40x56
+- computed transition on every real meld tile: none
+- immediate pitches:
+  29.203125, 29.203125, 29.203125, 29.203125, 29.203125
+- all tile Y coordinates identical within 0.03 px
+- transform = none on every real meld tile
+- meldVisualAudit.ok = true
+
+Artifact:
+- qa/atomic_compare_v153_v154.jsonl
+- qa/v154_exact_boundary.png
+
+============================================================
+5. CROWDED / REFLOW STRESS
+============================================================
+Synthetic owner-zone layouts tested through repeated sync/layout cycles:
+- 5,4,4
+- 6,4,4
+- 8,4,4
+- 8,6,4
+- 8,6,6
+- 10,6,6
+
+For each layout:
+- every meld remained one horizontal rigid group,
+- pitch was uniform inside each meld,
+- no tile overlap,
+- no meld plate overlap,
+- transition = none on every real meld node,
+- transform = none,
+- meldVisualAudit.ok = true.
+
+40 repeated syncMelds()+layoutMelds() cycles were applied per stress layout.
+
+============================================================
+6. VIEWPORT QA
+============================================================
+Browser smoke / no-page-error / no-console-error:
+- 768x356 PASS
+- 915x412 PASS
+- 1536x712 PASS
+- 1842x854 PASS
+
+No duplicate DOM IDs detected.
+
+============================================================
+7. GAMEPLAY / SERVER REGRESSION
+============================================================
+PASS:
+- qa/test-v152-rules.cjs => V152_TARGETED_RULES_PASS
+- qa/test-v153-side-take.cjs => V153_SIDE_TAKE_KEEP_OR_RETURN_PASS
+- server/test-authority.cjs => ALL DIRECT AUTHORITY TESTS PASS
+- server/test-client-sdk.cjs => PASS
+- server/test-http.cjs => PASS
+
+Bot sanity after presentation-only patch:
+- INDIVIDUAL: 10 games / 90 hands / 7,155 actions / failures 0
+- TEAM:       10 games / 90 hands / 7,456 actions / failures 0
+
+============================================================
+8. CONFLICT GUARD / BYTE IDENTITY
+============================================================
+Canonical browser engine block is byte-identical to v153:
+SHA-256 d3e10ffa1722cedddaea40b3748b726a9655952c66030de544c599d38538c045
+
+Canonical strategic bot block is byte-identical to v153:
+SHA-256 c77ef4d9a75cf6e9a33a0cd46eeef1bc0079f980d50d6b4dfa3f441368cb2460
+
+Unchanged / byte-identical to v153:
+- server/engine-factory.cjs
+- server/bot-factory.cjs
+- server/authority.cjs
+- server/server.cjs
+- icon-192.png
+- icon-512.png
+- manifest.webmanifest
+- netlify.toml
+
+Intentional changed runtime files:
+- index.html (BUILD + atomic meld transition pin)
+- multiplayer-client.js (build metadata only)
+- multiplayer-bridge.js (build metadata only)
+- sw.js (v154 cache namespace)
+
+============================================================
+FINAL VERDICT
+============================================================
+PASS.
+The reproduced visual overlap/skew is fixed at its actual cause: mixed-time geometry during a meld-area size-tier reflow. v154 keeps meld movement/resize atomic and leaves gameplay/server authority unchanged.

@@ -1,0 +1,24 @@
+OKEY17 / GÖBEK17 — QA / PACKAGE NOTE
+Build: gobek17-155-live-side-take-penalty-notify
+Parent: gobek17-154-atomic-meld-reflow.zip
+Date: 2026-08-19
+
+Summary:
+- Added per-seat side-take x10 penalty pop notice in UI.
+- Notice appears on the penalty eater's side for ~3 seconds.
+- Notice is triggered for:
+  * DISCARD_TAKEN_USED
+  * DISCARD_TAKE_UNUSED
+  * DISCARD_TAKE_KEPT
+- Live Report mini card pulses on new side-take penalty.
+- Live Report feed now shows up to 3 latest penalty lines and includes specific labels for side-take events.
+
+Smoke checks performed:
+- index.html inline script parse: PASS
+- sw.js syntax: PASS
+- multiplayer-bridge.js syntax: PASS
+- multiplayer-client.js syntax: PASS
+- service-worker cache namespace bumped to v155 build name.
+
+Notes:
+- No canonical game-rule change in this build; UI/presentation only.
