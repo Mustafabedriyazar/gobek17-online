@@ -313,6 +313,9 @@ def make_handler(svc: Service):
                                            else ("login-persisted" if svc.cfg.claude_credentials_on_disk()
                                                  else None)),
                     "apiKeyPresent": bool(svc.cfg.ai_key()),
+                    # Abonelik yolu YALNIZ claude-cli uzerinden isler; CLI
+                    # konteynerde yoksa bu yol sessizce kullanilamaz olur.
+                    "claudeCli": _claude_cli_probe(svc.cfg),
                     "github": bool(svc.cfg.repo),
                     "hint": None if ready else
                             "Claude Pro/Max aboneligi icin: tarayicisi olan bir makinede "
@@ -387,3 +390,17 @@ def serve(cfg=None):
     finally:
         httpd.server_close()
     return svc
+
+
+def _claude_cli_probe(cfg):
+    """Konteynerde claude CLI var mi ve --tools destekliyor mu.
+    Sir icermez; yalnizca varlik ve yol bilgisi doner."""
+    import shutil as _sh
+    try:
+        from .ai_worker import ClaudeCLIProvider
+        p = ClaudeCLIProvider(cfg)
+        path = _sh.which(getattr(p, "command", "claude") or "claude")
+        return {"path": path, "available": bool(path) and bool(p.available())}
+    except Exception as ex:
+        return {"path": None, "available": False,
+                "error": type(ex).__name__}

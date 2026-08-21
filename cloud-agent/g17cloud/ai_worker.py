@@ -386,8 +386,14 @@ class AIWorker:
     def select(self, task_text, requested=None):
         if self.cfg.ai_provider == "mock" or requested == "mock":
             return MockProvider(self.cfg)
-        name = route_provider(task_text, requested or (
-            None if self.cfg.ai_provider == "auto" else self.cfg.ai_provider))
+        # "auto" ve bos istek AYNI seydir: karari yapilandirmaya birak.
+        # Onceki halde requested="auto" dolu sayildigi icin cfg.ai_provider
+        # HIC okunmuyordu ve claude-cli (abonelik) secilemiyordu.
+        req = (requested or "").strip().lower()
+        if req in ("", "auto"):
+            cfgp = (self.cfg.ai_provider or "auto").strip().lower()
+            req = None if cfgp == "auto" else cfgp
+        name = route_provider(task_text, req)
         prov = self.provider_for(name)
         if not prov.available():
             raise AIError("AI saglayici kullanilamiyor: %s" % name)
