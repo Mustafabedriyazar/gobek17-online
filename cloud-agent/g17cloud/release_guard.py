@@ -112,6 +112,37 @@ class ReleaseGuard:
         return {"changed": changed, "status": "DEGISTI" if changed else "PASS"}
 
     # ---------------------------------------------------------------- 4 testler
+    # --- KENDI TEST SUITE'I -------------------------------------------------
+    def self_suite(self, source):
+        """Ajanin kendi python test suite'i (varsa) yolunu doner."""
+        from pathlib import Path as _P
+        for rel in ("cloud-agent/tests/run_tests.py", "tests/run_tests.py"):
+            p = _P(source) / rel
+            if p.is_file():
+                return p
+        return None
+
+    def run_self_tests(self, source):
+        """Ajanin KENDI kodu icin test kosar. FAIL'de tam kontrol adi + stderr."""
+        import subprocess as _sp, sys as _sys, re as _re
+        suite = self.self_suite(source)
+        if suite is None:
+            raise GuardFailure("TEST", "cloud-agent/tests/run_tests.py yok — "
+                                       "kendi kodu test edilmeden push YASAK")
+        p = _sp.run([_sys.executable, str(suite)], cwd=str(suite.parent.parent),
+                    capture_output=True, text=True, timeout=self.cfg.test_timeout)
+        out = (p.stdout or "") + (p.stderr or "")
+        m = _re.search(r"RESULT:\s*(\d+)\s*PASS\s*/\s*(\d+)\s*FAIL", out)
+        npass, nfail = (int(m.group(1)), int(m.group(2))) if m else (0, -1)
+        fails = [ln for ln in out.splitlines() if ln.startswith("FAIL ")]
+        summary = ("%d PASS / %d FAIL" % (npass, nfail)) if m else "SONUC OKUNAMADI"
+        ok = (p.returncode == 0 and m and nfail == 0)
+        if not ok:
+            raise GuardFailure("SELFTEST", "kendi testleri FAIL: %s | %s"
+                               % (summary, "; ".join(fails)[:400]),
+                               {"stdout": out[-3000:], "returncode": p.returncode})
+        return {"summary": summary, "ok": True, "results": fails}
+
     def discover_tests(self, source, build):
         sdir = Path(source) / "app" / "server" if (Path(source) / "app" / "server").is_dir() else Path(source) / "server"
         if not sdir.is_dir():
