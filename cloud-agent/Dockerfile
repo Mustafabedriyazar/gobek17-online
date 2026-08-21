@@ -2,6 +2,7 @@
 # Telefon/Termux bagimliligi YOKTUR. Railway ikinci servis, Linux container
 # veya herhangi bir cloud runner uzerinde ayni imaj calisir.
 FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs npm && rm -rf /var/lib/apt/lists/*
 
 # git: repo clone/worktree/commit icin ZORUNLU (deterministik GitHub Core kullanir)
 # ca-certificates: GitHub/Railway HTTPS dogrulamasi
