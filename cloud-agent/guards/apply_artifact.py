@@ -196,6 +196,12 @@ def do_apply(args):
             if n == 0:
                 fail("repo package.json icinde version alani bulunamadi")
             ap.write("package.json", new.encode("utf-8"))
+        appsrc = os.path.join(src, "app")  # APP AGACI SENKRONU
+        if os.path.isdir(appsrc):
+            n=0
+            for rel in walk_rel(appsrc):
+                if ap.write_file("app/"+rel, os.path.join(appsrc, rel.replace("/", os.sep))): n+=1
+            extra["appTree"]={"synced":n}
     else:
         touched = 0
         for rel in walk_rel(src):

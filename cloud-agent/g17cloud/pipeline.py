@@ -402,10 +402,14 @@ class Pipeline:
                 d = json.loads(tgt.read_text(encoding="utf-8"))
                 d["version"] = ver
                 tgt.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
+        import re as _re  # ZIP EXCLUDE
+        _skip = _re.compile(r"^(QA_GUARD_REPORT_|QA_V\d|RULE_DELTA_|MULTIPLAYER_PROTOCOL_|README_|ESLI-2V2-CONTRACT|test-)|(\.md$)|(^\.gitignore$)")
         zp = root / "gobek17-app.zip"
         with zipfile.ZipFile(zp, "w", 8) as z:
             for dp, _, fs in os.walk(appdir):
                 for f in sorted(fs):
                     fp = Path(dp) / f
-                    z.write(fp, str(fp.relative_to(appdir)))
+                    rel = str(fp.relative_to(appdir)).replace("\\", "/")
+                    if _skip.search(rel) or _skip.search(rel.split("/")[-1]): continue
+                    z.write(fp, rel)
         return ver
