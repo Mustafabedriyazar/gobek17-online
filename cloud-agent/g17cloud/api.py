@@ -23,6 +23,8 @@ from urllib.parse import urlparse
 
 from .config import NAME, VERSION, Config
 from .github_core import GitHubCore, GitHubError
+from .maintenance import NO_REDO_STATES as MAINT_NO_REDO
+from .maintenance import MaintenancePipeline, is_maintenance
 from .pipeline import Pipeline
 from .production import ProductionController
 from .store import ReleaseLock, TaskStore
@@ -134,6 +136,7 @@ class Service:
         self.lock = ReleaseLock(self.cfg.state_dir)
         self.q = queue.Queue()
         self.pipeline = Pipeline(self.cfg, self.store, self.lock, log=log)
+        self.maintenance = MaintenancePipeline(self.cfg, self.store, self.lock, log=log)
         self.started_at = int(time.time())
         self.workers = []
         self._stop = threading.Event()
@@ -152,7 +155,11 @@ class Service:
             except queue.Empty:
                 continue
             try:
-                self.pipeline.run(tid)
+                rec = self.store.get(tid) or {}
+                if is_maintenance(rec.get("build")):
+                    self.maintenance.run(tid)
+                else:
+                    self.pipeline.run(tid)
             except Exception:
                 log("worker hatasi:", traceback.format_exc(limit=3))
                 self.store.update(tid, status="failed", phase="INTERNAL")
@@ -167,6 +174,22 @@ class Service:
         """
         recovered = []
         for rec in self.store.recoverable():
+            # --- RESTART-SAFE SELF-UPDATE -------------------------------
+            # Bakim gorevi push asamasindaysa edit/push TEKRARLANMAZ;
+            # yalnizca dogrulama icin kuyruga alinir (MaintenancePipeline
+            # NO_REDO_STATES gorunce resume() calistirir).
+            if is_maintenance(rec.get("build")):
+                st = ((rec.get("result") or {}).get("selfState"))
+                if st in MAINT_NO_REDO:
+                    self.store.update(rec["id"], status="queued",
+                                      phase="resume:" + str(st))
+                    self.q.put(rec["id"])
+                    recovered.append((rec["id"], "resume:%s" % st))
+                    continue
+                self.store.update(rec["id"], status="queued", phase="requeued")
+                self.q.put(rec["id"])
+                recovered.append((rec["id"], "requeued"))
+                continue
             if (rec.get("result") or {}).get("pushed"):
                 self.store.update(rec["id"], status="needs_review",
                                   phase="RECOVERY_REQUIRES_REVIEW")
@@ -328,9 +351,14 @@ def make_handler(svc: Service):
                 return self._send(400, {"ok": False,
                                         "error": "build ve task zorunlu"})
             try:
-                int(build.lstrip("vV"))
+                if not is_maintenance(build):
+                    int(build.lstrip("vV"))
             except ValueError:
-                return self._send(400, {"ok": False, "error": "gecersiz build (ornek: v171)"})
+                return self._send(400, {"ok": False,
+                                        "error": "gecersiz build (ornek: v171 veya bakim)"})
+            if is_maintenance(build) and not svc.cfg.maintenance_ready():
+                return self._send(400, {"ok": False,
+                                        "error": "bakim lane kapali: ajan reposu tanimli degil"})
             prov = (b.get("provider") or "auto").lower()
             if prov not in ("auto", "fable", "opus", "claude-cli", "mock"):
                 return self._send(400, {"ok": False, "error": "gecersiz provider"})

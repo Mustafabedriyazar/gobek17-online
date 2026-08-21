@@ -26,6 +26,15 @@ def _i(key, default):
         return default
 
 
+def _detect_self_repo():
+    """Kurulum sirasinda uretilen _self_repo.py'den okur. Yoksa bos doner.
+    Bu dosya sir ICERMEZ; yalnizca owner/repo metnidir."""
+    try:
+        from ._self_repo import SELF_REPO
+        return SELF_REPO
+    except Exception:
+        return ""
+
 class Config:
     def __init__(self, env=None):
         e = env or os.environ
@@ -92,6 +101,16 @@ class Config:
         self.dev_mode = _b("G17_DEV_MODE", False)
 
         self.guards_dir = Path(__file__).resolve().parent.parent / "guards"
+
+        # --- MAINTENANCE LANE ------------------------------------------------
+        # Ajanin KENDI kaynak reposu. Oyun reposundan (self.repo) AYRIDIR.
+        # Sirasiyla: acik env -> kurulumda uretilen _self_repo.py -> bos.
+        self.self_repo = e.get("G17_SELF_REPO") or _detect_self_repo()
+        self.self_repo_dir = self.work_dir / "self-repo"
+
+    def maintenance_ready(self):
+        """Bakim lane'i icin ajan reposu biliniyor mu."""
+        return bool(self.self_repo)
 
     # Token erisimi TEK NOKTADAN. AI tarafina asla verilmez (bkz. ai_worker).
     def github_token(self):
