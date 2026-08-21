@@ -1,0 +1,241 @@
+name: Cloud Agent bootstrap (tek kullanimlik)
+
+# TEK SEFERLIK KURULUM — elle tetiklenir, zamanlanmis calisma YOK.
+#
+# Ne yapar:
+#   1) main uzerinde temiz checkout alir
+#   2) gomulu payload'i acar: cloud-agent/tests/ (self-test suite) +
+#      release_guard'a run_self_tests() eklenmesi
+#   3) self-test suite'i CALISTIRIR
+#   4) paket import + config load smoke calistirir
+#   5) ucu de PASS ise YALNIZ cloud-agent/ altindaki beklenen dosyalari
+#      commit edip main'e normal (fast-forward) push eder
+#
+# FAIL olursa hicbir sey commit edilmez, push edilmez.
+# force / reset --hard / history rewrite / branch delete KULLANILMAZ.
+# Token loglanmaz; payload icinde sir yoktur.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloud-agent-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Python surumu
+        run: python3 --version
+
+      - name: Repo duzenini dogrula
+        run: |
+          set -euo pipefail
+          test -d cloud-agent/g17cloud || { echo "HATA: cloud-agent/g17cloud yok"; exit 1; }
+          test -d cloud-agent/guards   || { echo "HATA: cloud-agent/guards yok"; exit 1; }
+          test -f cloud-agent/g17cloud/release_guard.py || { echo "HATA: release_guard.py yok"; exit 1; }
+          echo "Repo duzeni tamam."
+
+      - name: Payload'i ac
+        run: |
+          set -euo pipefail
+          cat > payload.b64 <<'G17_PAYLOAD_EOF'
+          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
+          9uzkG1bzmzahVQAA
+          G17_PAYLOAD_EOF
+          base64 -d payload.b64 | gunzip > bootstrap_selftest.py
+          rm -f payload.b64
+          python3 -c "compile(open('bootstrap_selftest.py').read(),'b','exec')"
+          echo "Payload acildi ve sozdizimi dogrulandi."
+
+      - name: Suite'i yaz, guard'i yamala, testleri calistir
+        run: |
+          set -euo pipefail
+          python3 bootstrap_selftest.py cloud-agent
+
+      - name: Import + config smoke
+        working-directory: cloud-agent
+        env:
+          G17_STATE_DIR: ${{ runner.temp }}/g17state
+        run: |
+          set -euo pipefail
+          python3 - <<'SMOKE'
+          import importlib
+          mods = ["g17cloud.config", "g17cloud.store", "g17cloud.github_core",
+                  "g17cloud.release_guard", "g17cloud.production",
+                  "g17cloud.ai_worker", "g17cloud.pipeline", "g17cloud.api"]
+          for m in mods:
+              importlib.import_module(m)
+              print("import OK:", m)
+          from g17cloud.config import Config
+          c = Config()
+          c.ensure_dirs()
+          d = c.public_dict()
+          assert "githubTokenPresent" in d
+          print("config OK:", d["name"], d["version"])
+          SMOKE
+
+      - name: Artik dosyalari temizle
+        run: |
+          set -euo pipefail
+          rm -f bootstrap_selftest.py
+          find cloud-agent -name '*.bak' -delete
+          find cloud-agent -name '__pycache__' -type d -prune -exec rm -rf {} +
+          echo "Temizlik tamam."
+
+      - name: Beklenen dosyalari stage'le
+        id: stage
+        run: |
+          set -euo pipefail
+          git add -- cloud-agent/tests cloud-agent/g17cloud/release_guard.py
+          UNEXPECTED=$(git diff --cached --name-only | grep -v -E '^cloud-agent/(tests/|g17cloud/release_guard[.]py$)' || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "HATA: beklenmeyen dosya staged:"
+            echo "$UNEXPECTED"
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo "changed=no" >> "$GITHUB_OUTPUT"
+            echo "Degisiklik yok — repo zaten guncel."
+          else
+            echo "changed=yes" >> "$GITHUB_OUTPUT"
+            git diff --cached --name-only
+          fi
+
+      - name: Commit ve push (fast-forward)
+        if: steps.stage.outputs.changed == 'yes'
+        run: |
+          set -euo pipefail
+          git config user.name  "g17-bootstrap"
+          git config user.email "g17-bootstrap@users.noreply.github.com"
+          git diff --cached --check
+          git commit -q -m "agent: self-test suite + run_self_tests guard (tek seferlik bootstrap)"
+          git pull --ff-only origin main
+          git push origin HEAD:main
+          echo "Push tamam."
+
+      - name: Ozet
+        run: |
+          echo "SONUC: self-test PASS, smoke PASS, degisiklik=${{ steps.stage.outputs.changed }}"
