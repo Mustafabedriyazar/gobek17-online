@@ -113,7 +113,7 @@ class ReleaseGuard:
 
     # ---------------------------------------------------------------- 4 testler
     def discover_tests(self, source, build):
-        sdir = Path(source) / "server"
+        sdir = Path(source) / "app" / "server" if (Path(source) / "app" / "server").is_dir() else Path(source) / "server"
         if not sdir.is_dir():
             return []
         found = []
@@ -136,7 +136,7 @@ class ReleaseGuard:
         return [f for f in found if not excl.search(f)]
 
     def run_tests(self, source, build, node="node"):
-        sdir = Path(source) / "server"
+        sdir = Path(source) / "app" / "server" if (Path(source) / "app" / "server").is_dir() else Path(source) / "server"
         tests = self.discover_tests(source, build)
         if not tests:
             raise GuardFailure("TEST", "calistirilabilir test bulunamadi")
