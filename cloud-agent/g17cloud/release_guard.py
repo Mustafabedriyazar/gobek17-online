@@ -188,7 +188,7 @@ class ReleaseGuard:
     def verify_artifact(self, source, build):
         rc, out, err = _py(self.g, "version_guard.py", ["verify", str(source), str(build)])
         if rc != 0:
-            raise GuardFailure("ARTIFACT", "paket v%s dogrulamasindan gecmedi" % build,
+            raise GuardFailure("ARTIFACT", "paket v%s: %s" % (build, (err or out or "?").strip()[:200]),
                                {"detail": (out or err)[:300]})
         return True
 
