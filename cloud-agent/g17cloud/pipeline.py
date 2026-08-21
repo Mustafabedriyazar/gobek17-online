@@ -345,7 +345,7 @@ class Pipeline:
         rc, out, err = _py(self.cfg.guards_dir, "version_guard.py",
                            ["semver", "--build", str(build)])
         semver = (out or "").strip()
-        src = Path(source)
+        src = Path(source) / "app" if (Path(source) / "app").is_dir() else Path(source)
         edits = 0
         import re as _re
         for rel, pattern, repl in (
