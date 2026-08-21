@@ -375,7 +375,7 @@ class Pipeline:
             return None
         minor = build if build < 100 else build - 100
         ver = "1.%d.0" % minor
-        for tgt in ():
+        for tgt in (appdir / "package.json", appdir / "server" / "package.json", root / "package.json"):
             if tgt.is_file():
                 d = json.loads(tgt.read_text(encoding="utf-8"))
                 d["version"] = ver
