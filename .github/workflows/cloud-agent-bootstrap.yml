@@ -2,16 +2,20 @@ name: Cloud Agent upgrade carrier
 
 # YUKSELTME TASIYICISI — elle tetiklenir, zamanlanmis calisma YOK.
 #
-# Bu kosunun yuku: parse_json_block dayanikliligi + AI API hata govdesi.
+# Bu kosunun yuku: Claude ABONELIGI (claude-cli) yolunu erisilebilir yapmak.
 #
-# 21 Agustos gecesi maintenance gorevleri dort farkli belirtiyle dustu:
-#   Unterminated string / JSON bulunamadi / Expecting property name / HTTP 400
-# Kok neden: parser ILK kod blogunu alip "ilk { ... son }" arasini kesiyordu,
-# ve hata mesajinda ham cikti YOKTU. Bu yuk ikisini de duzeltir.
+# Konsol "otomatik" secince API'ye requested="auto" gidiyordu; AIWorker.select
+# icinde "auto" dolu sayildigi icin AI_PROVIDER degiskeni HIC okunmuyordu.
+# Sonuc: hicbir gorev claude-cli'ye gidemiyor, her sey API'ye dusuyor ve
+# bakiye bitince duruyordu. Bu yuk iki seyi yapar:
+#   1) select(): "auto"/bos istek AI_PROVIDER'i gercekten dikkate alir
+#   2) /ready: claudeCli { path, available } alani — CLI kurulu mu, gorunur
+#
+# Guvenlik mimarisine DOKUNULMAZ: tool allowlist, DENY, izole worktree,
+# apply_edits, path guard, self-test, boot smoke, LKG, pipeline-owned push.
 #
 # FAIL olursa hicbir sey commit/push edilmez.
 # force / reset --hard / history rewrite / branch delete KULLANILMAZ.
-# Token loglanmaz; yuk sir icermez.
 
 on:
   workflow_dispatch:
@@ -39,6 +43,7 @@ jobs:
         run: |
           set -euo pipefail
           test -f cloud-agent/g17cloud/ai_worker.py || { echo "HATA: ai_worker.py yok"; exit 1; }
+          test -f cloud-agent/g17cloud/api.py || { echo "HATA: api.py yok"; exit 1; }
           test -f cloud-agent/tests/run_tests.py || { echo "HATA: test suite yok"; exit 1; }
           python3 --version
 
@@ -46,64 +51,54 @@ jobs:
         run: |
           set -euo pipefail
           cat > payload.b64 <<'G17_PAYLOAD_EOF'
-          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
+          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
+          AA==
           G17_PAYLOAD_EOF
           base64 -d payload.b64 | gunzip > upgrade.py
           rm -f payload.b64
@@ -165,7 +160,7 @@ jobs:
           git config user.name  "g17-bootstrap"
           git config user.email "g17-bootstrap@users.noreply.github.com"
           git diff --cached --check
-          git commit -q -m "agent: parse_json_block dayanikliligi + AI API hata govdesi"
+          git commit -q -m "agent: abonelik (claude-cli) yolu erisilebilir + /ready CLI probe"
           git pull --ff-only origin main
           git push origin HEAD:main
           echo "Push tamam."
