@@ -204,7 +204,7 @@ class Pipeline:
 
             # --- 5 testler + onarim dongusu (SINIRLI) ------------------------------
             attempt = 0
-            self.repackage_app(wt, build); tests = self.guard.run_tests(wt, build)
+            tests = self.guard.run_tests(wt, build)
             while not tests["ok"]:
                 attempt += 1
                 if attempt > self.cfg.max_repair:
@@ -221,7 +221,7 @@ class Pipeline:
                     changed=", ".join(changed)))
                 rep = parse_json_block(rep_raw)
                 changed = sorted(set(changed) | set(apply_edits(wt, rep.get("edits"))))
-                self.repackage_app(wt, build); tests = self.guard.run_tests(wt, build)
+                tests = self.guard.run_tests(wt, build)
             self._ev(task_id, "tests", tests["summary"])
             rec = self.store.update(task_id, attempts=attempt,
                                     result=dict(rec.get("result") or {},
@@ -250,7 +250,7 @@ class Pipeline:
 
                 stamp = self._stamp(build, plan.get("title"))
                 self._stamp_release(wt, build, stamp)
-                tests2 = self.guard.run_tests(wt, build)
+                self.repackage_app(wt, build); tests2 = self.guard.run_tests(wt, build)
                 if not tests2["ok"]:
                     return self._fail(rec, "RELEASE", "surum damgasi sonrasi testler FAIL")
                 self.guard.verify_artifact(wt, build)
@@ -375,7 +375,7 @@ class Pipeline:
             return None
         minor = build if build < 100 else build - 100
         ver = "1.%d.0" % minor
-        for tgt in (appdir / "package.json", root / "package.json"):
+        for tgt in ():
             if tgt.is_file():
                 d = json.loads(tgt.read_text(encoding="utf-8"))
                 d["version"] = ver
