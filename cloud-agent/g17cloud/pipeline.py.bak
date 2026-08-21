@@ -365,28 +365,6 @@ class Pipeline:
             if new != txt:
                 p.write_text(new, encoding="utf-8")
                 edits += 1
-        # --- KANONIK DAMGA ESITLEME ------------------------------------------
-        # version_guard yalnizca asagidaki 7 dosyayi tarar, ama damgayi dosyanin
-        # HER YERINDE arar. Yukaridaki hedefli yamalar sadece atama bicimini
-        # degistirdigi icin ayni dosyadaki diger gecisler eski surumde kalip
-        # "KARISIK surum damgalari" hatasi uretiyordu. Global replace kapsami
-        # guard'in kapsamiyla ayni tutuluyor: dokuman ve testlere DOKUNULMAZ.
-        _CANON = ("package.json", "server/package.json", "sw.js",
-                  "server/server.cjs", "index.html",
-                  "multiplayer-client.js", "multiplayer-bridge.js")
-        _leftover = _re.compile(r"gobek17-\d{3}-[a-z0-9-]+")
-        _root = Path(source)
-        _targets = [src / rel for rel in _CANON]
-        if src != _root:
-            _targets.append(_root / "package.json")   # 3-file bootstrap koku
-        for p in _targets:
-            if not p.is_file():
-                continue
-            txt = p.read_text(encoding="utf-8", errors="replace")
-            new = _leftover.sub(stamp, txt)
-            if new != txt:
-                p.write_text(new, encoding="utf-8")
-                edits += 1
         return edits
 
     def repackage_app(self, wt, build):
