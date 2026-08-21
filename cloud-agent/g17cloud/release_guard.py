@@ -176,6 +176,7 @@ class ReleaseGuard:
     def check_sequential(self, current, target, allow_skip=False):
         if current is None:
             return {"current": None, "target": target, "note": "repo surumu okunamadi"}
+        if current is not None and target >= 100 and current < 100: current += 100
         if target <= current:
             raise GuardFailure("VERSION", "geri/ayni surum — rollback YASAK",
                                {"current": current, "target": target})
