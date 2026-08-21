@@ -104,22 +104,90 @@ def apply_edits(worktree: Path, edits):
     return sorted(set(changed))
 
 
-def parse_json_block(text):
-    """AI ciktisindan yapisal JSON cikarir. ASLA eval/exec kullanilmaz."""
-    if not text:
+_FENCE = re.compile(r"```[a-zA-Z0-9_-]*\s*\n?(.*?)```", re.S)
+
+
+def _balanced_spans(text):
+    """Metindeki DENGELI ust duzey {...} bloklarini bulur.
+
+    String icindeki suslu parantezleri ve kacis dizilerini dogru atlar;
+    boylece "ilk { ile son }" hatasi ortadan kalkar.
+    """
+    spans = []
+    depth = 0
+    start = -1
+    in_str = False
+    esc = False
+    for i, ch in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth:
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    spans.append((start, i + 1))
+    return spans
+
+
+def _candidates(text):
+    """Denenecek metin parcalarini ONCELIK sirasiyla uretir."""
+    out = []
+    fences = _FENCE.findall(text or "")
+    # Kod blogu varsa SONDAN basa dene: model once aciklama, sonra JSON yazar.
+    for f in reversed(fences):
+        out.append(f.strip())
+    out.append((text or "").strip())
+    return out
+
+
+def parse_json_block(text, want=("edits",)):
+    """AI ciktisindan yapisal JSON cikarir. ASLA eval/exec kullanilmaz.
+
+    Strateji:
+      1) kod bloklarini SONDAN basa dene (aciklama once gelir, JSON sonra)
+      2) her adayda DENGELI {...} bloklarini tara, en buyugunden basla
+      3) beklenen anahtari (edits) iceren ILK gecerli JSON'u dondur
+      4) hicbiri olmazsa ham ciktinin ilk 800 karakterini hataya EKLE
+    """
+    if not text or not str(text).strip():
         raise AIError("AI bos yanit dondu")
-    t = text.strip()
-    fence = re.search(r"```(?:json)?\s*(.+?)```", t, re.S)
-    if fence:
-        t = fence.group(1).strip()
-    start = t.find("{")
-    end = t.rfind("}")
-    if start < 0 or end <= start:
-        raise AIError("AI yanitinda JSON bulunamadi")
-    try:
-        return json.loads(t[start:end + 1])
-    except ValueError as ex:
-        raise AIError("AI JSON'u cozumlenemedi: %s" % ex) from None
+    text = str(text)
+    fallback = None
+
+    for cand in _candidates(text):
+        if not cand:
+            continue
+        spans = _balanced_spans(cand)
+        # En buyuk blok once: ic ice objelerde dis kabugu yakalar.
+        for a, b in sorted(spans, key=lambda s: s[1] - s[0], reverse=True):
+            chunk = cand[a:b]
+            try:
+                obj = json.loads(chunk)
+            except ValueError:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            if any(k in obj for k in want):
+                return obj
+            if fallback is None:
+                fallback = obj
+    if fallback is not None:
+        return fallback
+
+    raise AIError("AI JSON'u cozumlenemedi. HAM CIKTI (ilk 800): %s"
+                  % text.strip()[:800])
 
 
 # ---------------------------------------------------------------- saglayicilar
@@ -164,7 +232,13 @@ class AnthropicAPIProvider(BaseProvider):
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 data = json.loads(r.read().decode())
         except urllib.error.HTTPError as ex:
-            raise AIError("AI API hatasi: HTTP %s" % ex.code) from None
+            # Govde OLMADAN hata ayiklanamiyor; sir icermez, API'nin
+            # kendi hata aciklamasidir.
+            try:
+                _b = ex.read().decode("utf-8", "replace")[:500]
+            except Exception:
+                _b = ""
+            raise AIError("AI API hatasi: HTTP %s %s" % (ex.code, _b)) from None
         except (urllib.error.URLError, OSError) as ex:
             raise AIError("AI API ulasilamadi: %s" % type(ex).__name__) from None
         parts = [b.get("text", "") for b in (data.get("content") or [])
