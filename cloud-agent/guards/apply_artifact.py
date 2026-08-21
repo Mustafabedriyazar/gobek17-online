@@ -79,8 +79,13 @@ def walk_rel(root, skip_root=()):
 
 def make_app_zip(src, out):
     """Deterministik app zip: ayni artifact -> ayni bayt -> duplicate commit yok."""
+    if (not os.path.isfile(os.path.join(src, "server.cjs"))
+            and not os.path.isfile(os.path.join(src, "server", "server.cjs"))
+            and os.path.isdir(os.path.join(src, "app"))):
+        src = os.path.join(src, "app")  # APP DUZENI
     files = sorted(walk_rel(src, skip_root=ZIP_SKIP_ROOT))
-    if "server.cjs" not in files:
+    _e = next((c for c in ("server.cjs","server/server.cjs") if c in files), None)
+    if _e is None:
         fail("app zip kokunde server.cjs yok — bootstrap bu dosyayi calistiriyor")
     tmp = out + ".tmp"
     with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:
