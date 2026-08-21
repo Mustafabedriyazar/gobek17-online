@@ -275,6 +275,29 @@ def make_handler(svc: Service):
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            if path == "/ready":
+                # Saglayici durumu. Kimlik DEGERI asla dahil edilmez.
+                mode = svc.cfg.ai_auth_mode()
+                ready = mode != "AI_UNAUTHENTICATED"
+                body = {
+                    "ok": ready,
+                    "provider": mode,
+                    "aiProvider": svc.cfg.ai_provider,
+                    "claudeConfigDir": svc.cfg.claude_config_dir,
+                    "claudeHome": svc.cfg.claude_home,
+                    # Abonelik kimligi nereden geliyor — DEGER degil, KAYNAK.
+                    "subscriptionSource": ("setup-token" if svc.cfg.claude_oauth()
+                                           else ("login-persisted" if svc.cfg.claude_credentials_on_disk()
+                                                 else None)),
+                    "apiKeyPresent": bool(svc.cfg.ai_key()),
+                    "github": bool(svc.cfg.repo),
+                    "hint": None if ready else
+                            "Claude Pro/Max aboneligi icin: tarayicisi olan bir makinede "
+                            "'claude setup-token' calistirin (bir kez), cikan token'i "
+                            "CLAUDE_CODE_OAUTH_TOKEN degiskeni olarak girin. "
+                            "ANTHROPIC_API_KEY ZORUNLU DEGILDIR, istege baglidir.",
+                }
+                return self._send(200 if ready else 503, body)
             if path == "/health":
                 return self._send(200, {"ok": True, "name": NAME, "version": VERSION,
                                         "uptimeSec": int(time.time()) - svc.started_at})

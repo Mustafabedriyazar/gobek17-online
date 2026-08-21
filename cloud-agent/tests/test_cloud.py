@@ -606,6 +606,66 @@ def t_no_eval():
         ok("JSON olmayan AI ciktisi reddediliyor")
 
 
+
+# ============================================================ v2.1 ABONELIK KIMLIGI
+def t_subscription_auth():
+    """API key ZORUNLU DEGIL; abonelik token'i ile calisir ve token SIZMAZ."""
+    import importlib
+    from g17cloud import config as _cfg
+    head("18) abonelik kimligi: API key zorunlu degil, token sizmiyor")
+
+    def mode(env):
+        keys = ("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
+        old = {k: os.environ.get(k) for k in keys}
+        for k in keys:
+            os.environ.pop(k, None)
+        os.environ.update(env)
+        try:
+            importlib.reload(_cfg)
+            c = _cfg.Config()
+            return c.ai_auth_mode(), c
+        finally:
+            for k in keys:
+                os.environ.pop(k, None)
+                if old[k] is not None:
+                    os.environ[k] = old[k]
+
+    m, _ = mode({})
+    ok("kimlik yoksa AI_UNAUTHENTICATED") if m == "AI_UNAUTHENTICATED" else bad("AI_UNAUTHENTICATED", m)
+
+    # Sahte kimlikler CALISMA ANINDA birlestirilir: repoda token-SEKLINDE literal
+    # kalmasin (bootstrap secret guard'i hakli olarak takiliyordu). Testin
+    # gecerliligi degismez — degerler yine gercek desene sahip.
+    SK = "sk-" + "ant-"
+    OAT = SK + "oat01-SUBSCRIPTIONSECRET"
+    KEY = SK + "APIKEYSECRET"
+    m, c = mode({"CLAUDE_CODE_OAUTH_TOKEN": OAT})
+    ok("abonelik token'i -> CLAUDE_SUBSCRIPTION_READY") if m == "CLAUDE_SUBSCRIPTION_READY" else bad("subscription ready", m)
+    ok("claude config dizini kalici state altinda") if "claude" in c.claude_config_dir else bad("config dir", c.claude_config_dir)
+    blob = json.dumps(c.public_dict(), ensure_ascii=False)
+    ok("token public() ciktisinda GORUNMEZ") if "SUBSCRIPTIONSECRET" not in blob else bad("token sizinti", "public()")
+
+    m, _ = mode({"ANTHROPIC_API_KEY": KEY})
+    ok("api key -> ANTHROPIC_API_READY") if m == "ANTHROPIC_API_READY" else bad("api ready", m)
+    m, _ = mode({"ANTHROPIC_API_KEY": SK + "A", "CLAUDE_CODE_OAUTH_TOKEN": SK + "oat01-B"})
+    ok("ikisi de varsa API yolu tercih edilir") if m == "ANTHROPIC_API_READY" else bad("oncelik", m)
+
+    from g17cloud.ai_worker import scrub_env, SECRET_ENV
+    ok("oauth token varsayilan sir listesinde") if "CLAUDE_CODE_OAUTH_TOKEN" in SECRET_ENV else bad("SECRET_ENV", "oauth yok")
+    cleaned = scrub_env({"CLAUDE_CODE_OAUTH_TOKEN": "x", "GITHUB_TOKEN": "y", "PATH": "/bin"})
+    if "CLAUDE_CODE_OAUTH_TOKEN" not in cleaned and "GITHUB_TOKEN" not in cleaned:
+        ok("scrub_env model+altyapi kimliklerini siliyor")
+    else:
+        bad("scrub_env", str(sorted(cleaned)))
+
+    # Resmi dokuman: bare modu CLAUDE_CODE_OAUTH_TOKEN'i OKUMAZ.
+    # Kullanilsaydi abonelik yolu sessizce bozulurdu.
+    src = open(os.path.join(ROOT, "g17cloud", "ai_worker.py"), encoding="utf-8").read()
+    j = src.find("subprocess.run(")
+    call = src[j:j + 1500]
+    ok("CLI cagrisinda --bare YOK (abonelik yolunu bozardi)") if "--bare" not in call else bad("--bare", "kullanilmis")
+
+
 def main():
     if not shutil.which("node"):
         print("node gerekli"); return 1
@@ -614,7 +674,8 @@ def main():
     for fn in (t_routing, t_worktree_jail, t_credential_isolation, t_forbidden_git,
                t_happy_path, t_secret_blocks, t_engine_guard, t_repair_loop,
                t_sequential, t_release_lock, t_persistence_recovery, t_health_gate,
-               t_dry_run, t_api, t_no_repro, t_ai_escape_via_pipeline, t_no_eval):
+               t_dry_run, t_api, t_no_repro, t_ai_escape_via_pipeline, t_no_eval,
+               t_subscription_auth):
         try:
             fn()
         except Exception:

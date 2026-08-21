@@ -199,6 +199,10 @@ class ClaudeCLIProvider(BaseProvider):
     def available(self):
         if not shutil.which(self.command):
             return False
+        # Kimlik yoksa CLI calissa da model cagrisi yapamaz.
+        # Abonelik: setup-token (env) VEYA bir kez yapilmis /login (kalici disk).
+        if not (self.cfg.subscription_available() or self.cfg.ai_key()):
+            return False
         h = self._help()
         return bool(re.search(r"(^|[^-])--tools([^A-Za-z-]|$)", h))
 
@@ -206,6 +210,43 @@ class ClaudeCLIProvider(BaseProvider):
         if not self.available():
             raise AIError("CLAUDE_PROVIDER_UNSAFE: --tools yok, kisitlanamiyor")
         env = scrub_env(os.environ)
+        # ABONELIK KIMLIGI: scrub_env altyapi sirlarini siler; model kimligini
+        # burada BILEREK geri koyariz — CLI'nin tek ihtiyaci budur.
+        # Deger loglanmaz, yankilanmaz, diske yazilmaz.
+        # Karari config TEK yerde verir; /ready ne diyorsa cocuk sureç onu kullanir.
+        # Anthropic dokumani: ANTHROPIC_API_KEY abonelige gore ONCELIKLIDIR — bu
+        # yuzden abonelik modunda API anahtarini cocuga HIC gecirmeyiz, yoksa
+        # sessizce API'ye dusup faturalandirirdi.
+        mode = self.cfg.ai_auth_mode()
+        env.pop("ANTHROPIC_API_KEY", None)
+        env.pop("CLAUDE_CODE_OAUTH_TOKEN", None)
+        if mode == "ANTHROPIC_API_READY" and self.cfg.ai_key():
+            env["ANTHROPIC_API_KEY"] = self.cfg.ai_key()
+        elif mode == "CLAUDE_SUBSCRIPTION_READY":
+            tok = self.cfg.claude_oauth()
+            if tok:
+                env["CLAUDE_CODE_OAUTH_TOKEN"] = tok
+            # token yoksa kalici /login kimligi kullanilir (asagidaki HOME)
+        # Kalici oturum: CLAUDE_CONFIG_DIR BELGELENMEMIS oldugu icin tek basina
+        # guvenilmez. Belgelenmis konum ~/.claude; bu yuzden cocuga kalici bir
+        # HOME veririz ve ayrica CLAUDE_CONFIG_DIR'i de set ederiz.
+        home = getattr(self.cfg, "claude_home", "")
+        if home:
+            try:
+                os.makedirs(os.path.join(home, ".claude"), mode=0o700, exist_ok=True)
+                os.chmod(home, 0o700)
+            except OSError:
+                pass
+            env["HOME"] = home
+        cfgdir = getattr(self.cfg, "claude_config_dir", "")
+        if cfgdir:
+            try:
+                os.makedirs(cfgdir, mode=0o700, exist_ok=True)
+            except OSError:
+                pass
+            env["CLAUDE_CONFIG_DIR"] = cfgdir
+        # NOT: "--bare" KULLANILMAZ. Resmi dokumana gore bare modu
+        # CLAUDE_CODE_OAUTH_TOKEN'i OKUMAZ; abonelik yolu sessizce bozulurdu.
         p = subprocess.run(
             [self.command, "--print", "--tools", self.TOOLS,
              "--disallowedTools", self.DENY, "--permission-mode", "acceptEdits",
@@ -241,6 +282,9 @@ SECRET_ENV = (
     "RAILWAY_TOKEN", "RAILWAY_API_TOKEN", "AWS_SECRET_ACCESS_KEY",
     "AWS_ACCESS_KEY_ID", "NPM_TOKEN", "OPENAI_API_KEY", "G17_API_TOKEN",
     "GITHUB_APP_PRIVATE_KEY_FILE", "GITHUB_APP_ID", "GITHUB_APP_INSTALLATION_ID",
+    # Model kimlikleri de varsayilan olarak SILINIR. Yalnizca ClaudeCLIProvider
+    # kendi cagrisinda gerekli olani bilerek geri koyar.
+    "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
 )
 
 

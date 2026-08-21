@@ -57,6 +57,22 @@ class Config:
         self.ai_provider = e.get("AI_PROVIDER", "auto")   # auto|fable|opus|claude-cli|mock
         self.ai_api_base = e.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
         self._ai_key = e.get("ANTHROPIC_API_KEY", "")
+        # v2.1 — ABONELIK KIMLIGI (API key ZORUNLU DEGIL).
+        # Resmi akis: kullanici tarayicisi olan bir makinede bir kez
+        #   claude setup-token
+        # calistirir; komut bir YILLIK token basar (hicbir yere kaydetmez) ve
+        # bu token CLAUDE_CODE_OAUTH_TOKEN olarak verilir. Token Pro/Max/Team
+        # aboneligiyle dogrular. Kendi OAuth istemcimizi YAZMIYORUZ.
+        self._claude_oauth = e.get("CLAUDE_CODE_OAUTH_TOKEN", "")
+        # Claude CLI yapilandirma dizini kalici diskte tutulur ki restart/deploy
+        # sonrasi onboarding sihirbazi ve yerel ayarlar kaybolmasin.
+        self.claude_config_dir = e.get("CLAUDE_CONFIG_DIR", str(self.state_dir / "claude"))
+        # CLAUDE_CONFIG_DIR Anthropic tarafindan BELGELENMEMISTIR (github issue 33430
+        # "not planned" ile kapandi). Belgelenmis konum ~/.claude oldugu icin cocuk
+        # surece ayrica kalici bir HOME veririz; boylece oturum volume'da yasar.
+        self.claude_home = e.get("G17_CLAUDE_HOME", str(self.state_dir / "claude-home"))
+        # auto | subscription | api  — hangi kimligin oncelikli oldugunu belirler.
+        self.ai_auth_pref = (e.get("AI_AUTH_PREFERENCE", "auto") or "auto").lower()
         self.model_fable = e.get("G17_MODEL_FABLE", "claude-fable-5")
         self.model_opus = e.get("G17_MODEL_OPUS", "claude-opus-5")
         self.ai_timeout = _i("AI_TIMEOUT_SECONDS", 900)
@@ -87,9 +103,57 @@ class Config:
     def ai_key(self):
         return self._ai_key
 
+
+    def claude_oauth(self):
+        """Abonelik token'i. DEGERI HICBIR YERDE LOGLANMAZ."""
+        return self._claude_oauth
+
+    def claude_credentials_on_disk(self):
+        """Bir kez yapilan 'claude /login' sonrasi olusan kimlik dosyasi var mi.
+        SADECE VARLIK bakilir; icerik OKUNMAZ, loglanmaz, doner degere girmez."""
+        import os as _os
+        for base in (self.claude_home, self.claude_config_dir):
+            if not base:
+                continue
+            for rel in (".claude/.credentials.json", ".credentials.json",
+                        ".claude/.claude.json", ".claude.json"):
+                try:
+                    pth = _os.path.join(base, rel)
+                    if _os.path.isfile(pth) and _os.path.getsize(pth) > 2:
+                        return True
+                except OSError:
+                    pass
+        return False
+
+    def subscription_available(self):
+        return bool(self._claude_oauth) or self.claude_credentials_on_disk()
+
+    def ai_auth_mode(self):
+        """/ready icin saglayici durumu.
+        CLAUDE_SUBSCRIPTION_READY-> abonelik (setup-token veya kalici /login)
+        ANTHROPIC_API_READY      -> API anahtari (ISTEGE BAGLI yol)
+        AI_UNAUTHENTICATED       -> ikisi de yok; agent gorev ALMAZ.
+
+        Anthropic dokumani: ANTHROPIC_API_KEY varsa abonelige gore ONCELIKLIDIR.
+        Bu yuzden ikisi de varken hangisinin kullanildigini burada TEK yerden
+        belirleriz ve ai_worker ayni karari uygular (rapor ile gercek ayrilmaz).
+        """
+        sub, key = self.subscription_available(), bool(self._ai_key)
+        pref = self.ai_auth_pref
+        if pref == "subscription" and sub:
+            return "CLAUDE_SUBSCRIPTION_READY"
+        if pref == "api" and key:
+            return "ANTHROPIC_API_READY"
+        if key:
+            return "ANTHROPIC_API_READY"
+        if sub:
+            return "CLAUDE_SUBSCRIPTION_READY"
+        return "AI_UNAUTHENTICATED"
+
     def ensure_dirs(self):
         for d in (self.state_dir, self.work_dir, self.state_dir / "tasks",
-                  self.state_dir / "artifacts"):
+                  self.state_dir / "artifacts",
+                  Path(self.claude_home), Path(self.claude_config_dir)):
             d.mkdir(parents=True, exist_ok=True)
 
     def public_dict(self):
@@ -104,7 +168,10 @@ class Config:
             "prodBase": self.prod_base,
             "healthUrl": self.health_url,
             "aiProvider": self.ai_provider,
+            "aiAuth": self.ai_auth_mode(),
             "aiKeyPresent": bool(self._ai_key),
+            "subscriptionPresent": self.subscription_available(),
+            "claudeHome": self.claude_home,
             "models": {"fable": self.model_fable, "opus": self.model_opus},
             "maxRepairAttempts": self.max_repair,
             "strictSequentialBuilds": self.strict_sequential,
