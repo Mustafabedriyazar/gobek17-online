@@ -204,7 +204,7 @@ class Pipeline:
 
             # --- 5 testler + onarim dongusu (SINIRLI) ------------------------------
             attempt = 0
-            tests = self.guard.run_tests(wt, build)
+            self.repackage_app(wt, build); tests = self.guard.run_tests(wt, build)
             while not tests["ok"]:
                 attempt += 1
                 if attempt > self.cfg.max_repair:
@@ -221,7 +221,7 @@ class Pipeline:
                     changed=", ".join(changed)))
                 rep = parse_json_block(rep_raw)
                 changed = sorted(set(changed) | set(apply_edits(wt, rep.get("edits"))))
-                tests = self.guard.run_tests(wt, build)
+                self.repackage_app(wt, build); tests = self.guard.run_tests(wt, build)
             self._ev(task_id, "tests", tests["summary"])
             rec = self.store.update(task_id, attempts=attempt,
                                     result=dict(rec.get("result") or {},
@@ -366,3 +366,24 @@ class Pipeline:
                 p.write_text(new, encoding="utf-8")
                 edits += 1
         return edits
+
+    def repackage_app(self, wt, build):
+        import json, zipfile, os
+        from pathlib import Path
+        root = Path(wt); appdir = root / "app"
+        if not appdir.is_dir():
+            return None
+        minor = build if build < 100 else build - 100
+        ver = "1.%d.0" % minor
+        for tgt in (appdir / "package.json", root / "package.json"):
+            if tgt.is_file():
+                d = json.loads(tgt.read_text(encoding="utf-8"))
+                d["version"] = ver
+                tgt.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
+        zp = root / "gobek17-app.zip"
+        with zipfile.ZipFile(zp, "w", 8) as z:
+            for dp, _, fs in os.walk(appdir):
+                for f in sorted(fs):
+                    fp = Path(dp) / f
+                    z.write(fp, str(fp.relative_to(appdir)))
+        return ver
