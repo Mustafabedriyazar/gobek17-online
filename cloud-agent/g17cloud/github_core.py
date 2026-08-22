@@ -201,6 +201,7 @@ class GitHubCore:
         p = Path(path)
         if p.exists():
             shutil.rmtree(p, ignore_errors=True)
+        self._git(["worktree", "prune"], check=False)
         self._git(["worktree", "add", "--detach", str(p),
                    ref or ("origin/" + self.cfg.branch)])
         return p
