@@ -34,7 +34,7 @@ from pathlib import Path
 from . import ai_worker as aiw
 from .ai_worker import AIError, AIWorker, apply_edits, parse_json_block, route_provider
 from .github_core import GitHubCore, GitHubError
-from .release_guard import GuardFailure, ReleaseGuard
+from .release_guard import GuardFailure, ReleaseGuard, preflight
 
 # --- durum makinesi ---------------------------------------------------------
 PREPARED = "PREPARED"
@@ -144,6 +144,21 @@ class MaintenancePipeline:
     def _state_of(self, rec):
         return ((rec or {}).get("result") or {}).get("selfState")
 
+    def _preflight(self, task_id, rec, gh):
+        """GOREVIN ILK ADIMI. FAIL ise GuardFailure firlatir (bkz. release_guard.preflight);
+        cagiran run() bunu yakalayip gorevi PREFLIGHT asamasinda durdurur."""
+        wt_target = Path(self.cfg.work_dir) / ("self-wt-%s" % task_id)
+        repo_exists = (Path(self.cfg.self_repo_dir) / ".git").is_dir()
+        pf = preflight(
+            lane="maintenance", repo=self.cfg.self_repo, other_repo=self.cfg.repo,
+            branch=self.cfg.branch, work_dir=self.cfg.work_dir, worktree_path=wt_target,
+            repo_exists=repo_exists,
+            current_branch=lambda: gh._git(["rev-parse", "--abbrev-ref", "HEAD"]),
+            is_clean=gh.is_clean)
+        rec = self.store.update(task_id, result=dict(rec.get("result") or {}, preflight=pf))
+        self._ev(task_id, "preflight", "PASS (%s)" % ", ".join(pf["checks"]))
+        return rec
+
     def gh(self):
         return GitHubCore(_SelfCfg(self.cfg), log=self.log)
 
@@ -233,6 +248,12 @@ class MaintenancePipeline:
         wt = None
         gh = self.gh()
         try:
+            # --- PREFLIGHT: gorevin ILK ADIMI --------------------------------
+            # Serit kurali (ajan reposu, oyun reposu DEGIL), worktree konumu,
+            # branch ve calisma agaci temizligi AI/edit/push zincirinden ONCE
+            # dogrulanir. Basarisiz olursa gorev burada durur.
+            rec = self._preflight(task_id, rec, gh)
+
             # --- 0 kurulum dizini hijyeni -----------------------------------
             aiw.clean_install_leftovers(log=self.log)
 

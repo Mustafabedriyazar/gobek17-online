@@ -17,7 +17,7 @@ from . import ai_worker as aiw
 from .ai_worker import AIError, AIWorker, apply_edits, parse_json_block, route_provider
 from .github_core import GitHubCore, GitHubError
 from .production import ProductionController
-from .release_guard import GuardFailure, ReleaseGuard
+from .release_guard import GuardFailure, ReleaseGuard, preflight
 from .store import DEFAULT_TASK_MODE
 
 
@@ -121,6 +121,21 @@ class Pipeline:
         self._ev(rec["id"], stage, "FAILED: %s" % reason)
         return rec
 
+    def _preflight(self, task_id, rec):
+        """GOREVIN ILK ADIMI. FAIL ise GuardFailure firlatir (bkz. release_guard.preflight);
+        cagiran run() bunu yakalayip gorevi PREFLIGHT asamasinda durdurur."""
+        wt_target = Path(self.cfg.work_dir) / ("wt-%s" % task_id)
+        repo_exists = (Path(self.cfg.repo_dir) / ".git").is_dir()
+        pf = preflight(
+            lane="release", repo=self.cfg.repo, other_repo=self.cfg.self_repo,
+            branch=self.cfg.branch, work_dir=self.cfg.work_dir, worktree_path=wt_target,
+            repo_exists=repo_exists,
+            current_branch=lambda: self.gh._git(["rev-parse", "--abbrev-ref", "HEAD"]),
+            is_clean=self.gh.is_clean)
+        rec = self.store.update(task_id, result=dict(rec.get("result") or {}, preflight=pf))
+        self._ev(task_id, "preflight", "PASS (%s)" % ", ".join(pf["checks"]))
+        return rec
+
     def repo_context(self, repo_dir, build):
         """AI'ya SECICI baglam. Tum repo prompt'a basilmaz."""
         rd = Path(repo_dir)
@@ -164,6 +179,12 @@ class Pipeline:
         wt = None
         try:
             rec = self.store.update(task_id, status="running", phase="prepare")
+
+            # --- PREFLIGHT: gorevin ILK ADIMI ------------------------------------
+            # Serit kurali (dogru repo), worktree konumu, branch ve calisma agaci
+            # temizligi AI/git/guard zincirinden ONCE dogrulanir. Basarisiz olursa
+            # gorev burada durur; sonraki adimlara GECILMEZ (bkz. release_guard.preflight).
+            rec = self._preflight(task_id, rec)
 
             # --- 0 kurulum dizini hijyeni ---------------------------------------
             # Onceki turdan (crash, eski surum vb.) kurulum dizininde artik

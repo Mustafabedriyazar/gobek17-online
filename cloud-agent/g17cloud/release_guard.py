@@ -29,6 +29,78 @@ class GuardFailure(RuntimeError):
         self.detail = detail or {}
 
 
+# ---------------------------------------------------------------- 0 preflight
+# Serit basina beklenen worktree dizin oneki. release -> oyun reposu worktree'si,
+# maintenance -> ajanin kendi reposu worktree'si (bkz. pipeline.py / maintenance.py).
+LANE_PREFIXES = {"release": "wt-", "maintenance": "self-wt-"}
+PREFLIGHT_CHECKS = ("repo", "worktree", "branch", "clean")
+
+
+def preflight(lane, repo, other_repo, branch, work_dir, worktree_path,
+             repo_exists=False, current_branch=None, is_clean=None):
+    """GOREVIN ILK ADIMI. AI/git/guard zincirinden ONCE calisir.
+
+    Dogrular: (1) serit kuralina gore hedef repo dogru mu — release seridi
+    oyun reposunu, maintenance seridi ajan reposunu hedeflemeli ve ikisi
+    ayni OLMAMALI; (2) worktree yolu beklenen calisma dizini altinda ve
+    seridin onekiyle mi adlandirilmis; (3) hedef branch tanimli mi (ve
+    yerel repo zaten varsa o branch'te mi); (4) yerel calisma agaci temiz
+    mi (commit edilmemis degisiklik yoksa). Herhangi biri basarisiz olursa
+    GuardFailure(stage='PREFLIGHT', ...) firlatir; cagiran taraf sonraki
+    adimlara GECMEZ — hata rec['result']['detail'] icinde hangi kontrolun
+    neden basarisiz oldugunu tasir.
+
+    repo_exists=False ise (ilk klonlama, yerel state yok) branch/clean
+    kontrolleri ATLANIR; current_branch/is_clean YALNIZ repo_exists=True
+    ise cagrilir (lazy — gereksiz git cagrisi yapilmaz).
+    """
+    repo = (repo or "").strip()
+    if not repo:
+        raise GuardFailure("PREFLIGHT", "%s serit icin hedef repo tanimli degil" % lane,
+                           {"check": "repo", "lane": lane})
+    other_repo = (other_repo or "").strip()
+    if other_repo and repo == other_repo:
+        raise GuardFailure(
+            "PREFLIGHT",
+            "%s serit yanlis repoyu hedefliyor (serit reposu digeriyle ayni)" % lane,
+            {"check": "repo", "lane": lane, "repo": repo})
+
+    wd = Path(work_dir).resolve()
+    wt = Path(worktree_path)
+    try:
+        wt.resolve().relative_to(wd)
+    except ValueError:
+        raise GuardFailure("PREFLIGHT", "worktree yolu beklenen calisma dizini disinda",
+                           {"check": "worktree", "lane": lane, "path": str(worktree_path)})
+    prefix = LANE_PREFIXES.get(lane)
+    if prefix and not wt.name.startswith(prefix):
+        raise GuardFailure(
+            "PREFLIGHT",
+            "worktree adi %s seridi icin beklenen onekle baslamiyor (%s)" % (lane, prefix),
+            {"check": "worktree", "lane": lane, "path": str(worktree_path)})
+
+    branch = (branch or "").strip()
+    if not branch:
+        raise GuardFailure("PREFLIGHT", "hedef branch tanimli degil",
+                           {"check": "branch", "lane": lane})
+
+    if repo_exists:
+        cur = ((current_branch() if current_branch else "") or "").strip()
+        if cur and cur != branch:
+            raise GuardFailure(
+                "PREFLIGHT",
+                "yerel repo beklenmeyen branch'te: %s (beklenen %s)" % (cur, branch),
+                {"check": "branch", "lane": lane, "current": cur, "expected": branch})
+        if not (is_clean() if is_clean else True):
+            raise GuardFailure(
+                "PREFLIGHT",
+                "calisma agaci temiz degil — commit edilmemis degisiklik var",
+                {"check": "clean", "lane": lane})
+
+    return {"ok": True, "lane": lane, "repo": repo, "branch": branch,
+           "worktree": str(worktree_path), "checks": list(PREFLIGHT_CHECKS)}
+
+
 def _py(guards_dir, script, args, stdin=None, timeout=300):
     proc = subprocess.run([sys.executable, str(Path(guards_dir) / script)] + args,
                           input=stdin, capture_output=True, text=True, timeout=timeout)
