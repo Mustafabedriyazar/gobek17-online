@@ -18,6 +18,17 @@ from .ai_worker import AIError, AIWorker, apply_edits, parse_json_block, route_p
 from .github_core import GitHubCore, GitHubError
 from .production import ProductionController
 from .release_guard import GuardFailure, ReleaseGuard
+from .store import DEFAULT_TASK_MODE
+
+
+def reproduce_required(mode):
+    """REPRODUCE kapisinin TEK yetki kaynagi. Gorev metni ETKILEMEZ.
+
+    mode='fix' -> REPRODUCE zorunlu (eski davranis). mode='feature'/'chore'
+    -> REPRODUCE atlanir, akis dogrudan root-cause/implement ile devam eder.
+    """
+    return (mode or DEFAULT_TASK_MODE) == "fix"
+
 
 SYSTEM_CONTEXT = """GÖBEK17 / OKEY17 kanonik projesi.
 
@@ -183,7 +194,7 @@ class Pipeline:
                 build=build, parent=parent, task=rec["task"],
                 context=self.repo_context(wt, build)), cwd=wt)
             plan = parse_json_block(plan_raw)
-            if not plan.get("reproduced"):
+            if reproduce_required(rec.get("mode")) and not plan.get("reproduced"):
                 return self._fail(rec, "REPRODUCE", "AI sorunu reproduce edemedi",
                                   {"rootCause": str(plan.get("rootCause"))[:300]})
             self._ev(task_id, "root-cause", str(plan.get("rootCause"))[:200])
