@@ -278,7 +278,8 @@ class ClaudeCLIProvider(BaseProvider):
         if not (self.cfg.subscription_available() or self.cfg.ai_key()):
             return False
         h = self._help()
-        return bool(re.search(r"(^|[^-])--tools([^A-Za-z-]|$)", h))
+        return bool(re.search(r"(^|[^-])--tools([^A-Za-z-]|$)", h)
+                    or re.search(r"--allowed-?[tT]ools", h))
 
     def run(self, system, prompt, timeout=900, cwd=None):
         if not self.available():
@@ -321,8 +322,10 @@ class ClaudeCLIProvider(BaseProvider):
             env["CLAUDE_CONFIG_DIR"] = cfgdir
         # NOT: "--bare" KULLANILMAZ. Resmi dokumana gore bare modu
         # CLAUDE_CODE_OAUTH_TOKEN'i OKUMAZ; abonelik yolu sessizce bozulurdu.
+        hh = self._help()
+        tf = "--tools" if re.search(r"(^|[^-])--tools([^A-Za-z-]|$)", hh) else "--allowedTools"
         p = subprocess.run(
-            [self.command, "--print", "--tools", self.TOOLS,
+            [self.command, "--print", tf, self.TOOLS,
              "--disallowedTools", self.DENY, "--permission-mode", "acceptEdits",
              "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
              "--append-system-prompt", system],
