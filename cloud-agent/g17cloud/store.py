@@ -19,6 +19,19 @@ TERMINAL = ("success", "failed", "cancelled")
 # Push'a kadar giden, kilit gerektiren fazlar
 RELEASE_PHASES = ("guards", "artifact", "commit", "push", "actions", "production")
 
+# Gorev modu — REPRODUCE asamasinin TEK yetki kaynagi (pipeline.reproduce_required).
+# Gorev metninden tip cikarimi YAPILMAZ; yalnizca bu alan gecerlidir.
+TASK_MODES = ("feature", "fix", "chore")
+DEFAULT_TASK_MODE = "feature"
+
+
+def resolve_task_mode(raw):
+    """mode alanini dogrular/varsayilana duser. Gecersiz deger ValueError firlatir."""
+    mode = (raw or DEFAULT_TASK_MODE).strip().lower()
+    if mode not in TASK_MODES:
+        raise ValueError("gecersiz mode: %r" % (raw,))
+    return mode
+
 
 def now():
     return int(time.time())
@@ -47,13 +60,14 @@ class TaskStore:
     def _path(self, tid):
         return self.dir / ("%s.json" % tid)
 
-    def create(self, build, task, provider=None, dry_run=False, no_deploy=False):
+    def create(self, build, task, provider=None, dry_run=False, no_deploy=False, mode=None):
         tid = new_id()
         rec = {
             "id": tid,
             "build": build,
             "task": task,
             "provider": provider or "auto",
+            "mode": resolve_task_mode(mode),
             "dryRun": bool(dry_run),
             "noDeploy": bool(no_deploy),
             "status": "queued",

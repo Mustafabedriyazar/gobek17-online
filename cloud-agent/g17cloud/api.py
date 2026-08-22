@@ -3,7 +3,10 @@
 """G17 Cloud Agent v2 — HTTP controller + arka plan worker.
 
 Uclar:
-  POST /tasks          {build, task, provider?, dryRun?, noDeploy?} -> 202 {id}
+  POST /tasks          {build, task, mode?, provider?, dryRun?, noDeploy?} -> 202 {id}
+                        mode: feature|fix|chore (yoksa feature). Gorev tipi
+                        YALNIZCA bu alandan belirlenir; gorev metninden tip
+                        cikarimi YAPILMAZ. mode=fix disinda REPRODUCE atlanir.
   GET  /tasks          son gorevler
   GET  /tasks/:id      tek gorev durumu (faz gecisleri dahil)
   GET  /status         servis + GitHub + production ozeti (SIR ICERMEZ)
@@ -27,7 +30,7 @@ from .maintenance import NO_REDO_STATES as MAINT_NO_REDO
 from .maintenance import MaintenancePipeline, is_maintenance
 from .pipeline import Pipeline
 from .production import ProductionController
-from .store import ReleaseLock, TaskStore
+from .store import ReleaseLock, TaskStore, resolve_task_mode
 
 
 # ============================================================================
@@ -206,8 +209,8 @@ class Service:
                 self.lock.release(force=True)
         return recovered
 
-    def submit(self, build, task, provider=None, dry_run=False, no_deploy=False):
-        rec = self.store.create(build, task, provider, dry_run, no_deploy)
+    def submit(self, build, task, provider=None, dry_run=False, no_deploy=False, mode=None):
+        rec = self.store.create(build, task, provider, dry_run, no_deploy, mode)
         self.q.put(rec["id"])
         return rec
 
@@ -365,8 +368,12 @@ def make_handler(svc: Service):
             prov = (b.get("provider") or "auto").lower()
             if prov not in ("auto", "fable", "opus", "claude-cli", "mock"):
                 return self._send(400, {"ok": False, "error": "gecersiz provider"})
+            try:
+                mode = resolve_task_mode(b.get("mode"))
+            except ValueError:
+                return self._send(400, {"ok": False, "error": "gecersiz mode"})
             rec = svc.submit(build, task, prov, bool(b.get("dryRun")),
-                             bool(b.get("noDeploy")))
+                             bool(b.get("noDeploy")), mode)
             return self._send(202, {"ok": True, "id": rec["id"], "status": rec["status"],
                                     "poll": "/tasks/%s" % rec["id"]})
 

@@ -6,6 +6,7 @@ import tempfile
 import types
 from pathlib import Path
 
+from g17cloud import ai_worker as aiw
 from g17cloud import maintenance as M
 
 
@@ -106,6 +107,96 @@ def check_resume_reaches_done_when_verified():
         assert rec["status"] == "success", rec["status"]
         assert rec["result"]["selfState"] == M.DONE
         assert rec["result"]["health"] == "PASS"
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ------------------------------------------------------ calisma alani izolasyonu
+def check_clean_install_leftovers_removes_known_worktree_leftovers():
+    """GOREV BASI HAZIRLIK: onceki turdan kalmis worktree/tarama artiklari silinir."""
+    tmp = tempfile.mkdtemp(prefix="g17install-")
+    try:
+        root = Path(tmp)
+        for keep in ("g17cloud", "guards", "tests"):
+            (root / keep).mkdir()
+            (root / keep / "marker.py").write_text("x", encoding="utf-8")
+        (root / "wt-t_old1").mkdir()
+        (root / "wt-t_old1" / "junk.txt").write_text("x", encoding="utf-8")
+        (root / "self-wt-t_old2").mkdir()
+        (root / "gobek17-app.zip").write_text("x", encoding="utf-8")
+
+        removed = aiw.clean_install_leftovers(root=root)
+
+        assert set(removed) == {"wt-t_old1", "self-wt-t_old2", "gobek17-app.zip"}, removed
+        assert not (root / "wt-t_old1").exists()
+        assert not (root / "self-wt-t_old2").exists()
+        assert not (root / "gobek17-app.zip").exists()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_clean_install_leftovers_never_touches_unrelated_files():
+    """ALLOWLIST disi HICBIR SEYE dokunulmaz — Procfile/README/kaynak dahil."""
+    tmp = tempfile.mkdtemp(prefix="g17install2-")
+    try:
+        root = Path(tmp)
+        for keep in ("g17cloud", "guards", "tests"):
+            (root / keep).mkdir()
+            (root / keep / "marker.py").write_text("kaynak", encoding="utf-8")
+        (root / "Procfile").write_text("web: python -m g17cloud", encoding="utf-8")
+        (root / "requirements.txt").write_text("x", encoding="utf-8")
+        (root / "README.md").write_text("x", encoding="utf-8")
+        (root / ".git").mkdir()
+
+        removed = aiw.clean_install_leftovers(root=root)
+
+        assert removed == [], removed
+        for keep in ("g17cloud", "guards", "tests"):
+            assert (root / keep / "marker.py").read_text(encoding="utf-8") == "kaynak"
+        assert (root / "Procfile").exists()
+        assert (root / "requirements.txt").exists()
+        assert (root / "README.md").exists()
+        assert (root / ".git").exists()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_cleanup_task_workspace_is_isolated_per_task():
+    tmp = tempfile.mkdtemp(prefix="g17wsiso-")
+    try:
+        cfg = _cfg(tmp)
+        (cfg.work_dir / "wt-t1").mkdir(parents=True)
+        (cfg.work_dir / "wt-t1" / "x.txt").write_text("t1 uretimi", encoding="utf-8")
+        (cfg.work_dir / "self-wt-t1").mkdir(parents=True)
+        (cfg.work_dir / "wt-t2").mkdir(parents=True)
+        (cfg.work_dir / "wt-t2" / "y.txt").write_text("t2 kendi is", encoding="utf-8")
+
+        removed = aiw.cleanup_task_workspace(cfg, "t1")
+
+        assert not (cfg.work_dir / "wt-t1").exists(), "t1 gecici alani kalmis"
+        assert not (cfg.work_dir / "self-wt-t1").exists(), "t1 worktree kaydi kalmis"
+        assert (cfg.work_dir / "wt-t2").exists(), "baska gorevin alani yanlislikla silindi"
+        assert (cfg.work_dir / "wt-t2" / "y.txt").read_text(encoding="utf-8") == "t2 kendi is"
+        assert len(removed) == 2
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def check_cleanup_task_workspace_never_touches_persistent_state_dir():
+    tmp = tempfile.mkdtemp(prefix="g17wspersist-")
+    try:
+        cfg = _cfg(tmp)
+        (cfg.state_dir / "tasks").mkdir(parents=True)
+        (cfg.state_dir / "tasks" / "t1.json").write_text('{"id":"t1"}', encoding="utf-8")
+        (cfg.state_dir / "artifacts").mkdir(parents=True)
+        (cfg.state_dir / "artifacts" / "v1.zip").write_text("art", encoding="utf-8")
+        (cfg.work_dir / "wt-t1").mkdir(parents=True)
+
+        aiw.cleanup_task_workspace(cfg, "t1")
+
+        assert (cfg.state_dir / "tasks" / "t1.json").is_file(), "kalici gorev kaydi silindi"
+        assert (cfg.state_dir / "artifacts" / "v1.zip").is_file(), "kalici artifact silindi"
+        assert not (cfg.work_dir / "wt-t1").exists()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

@@ -162,7 +162,8 @@ def run_task(cfg, base, mode, build="v171", provider="mock", **kw):
     os.environ["G17_MOCK_SCRIPT"] = str(mock_script(base, mode))
     svc = Service(cfg)
     rec = svc.store.create(build, "ranked panelini duzelt", provider,
-                           kw.get("dry_run", False), kw.get("no_deploy", False))
+                           kw.get("dry_run", False), kw.get("no_deploy", False),
+                           kw.get("task_mode", "fix"))
     svc.pipeline.prod.wait_for = lambda stamp, **k: {
         "result": kw.get("health", "PASS"), "seen": stamp, "waited": 0}
     svc.pipeline.gh.wait_actions = lambda sha, **k: {

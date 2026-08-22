@@ -9,6 +9,10 @@ GUVENLIK SOZLESMESI (kod duzeyinde zorlanir):
   * AI'nin tek eylem yuzeyi yapisal "edit" listesidir; her yol worktree
     icinde cozulmek ZORUNDADIR (path traversal / symlink kacisi reddedilir).
   * Sonsuz dongu yok: onarim turu ust sinirla kisitlidir (pipeline yonetir).
+  * CALISMA ALANI IZOLASYONU: saglayici HER cagrida yalniz o goreve ait
+    izole worktree'yi cwd olarak alir; ajanin KENDI kurulum dizini hicbir
+    kosulda cwd ya da ek erisim kapsami olarak VERILMEZ (bkz. AIWorker.call,
+    agent_install_dir, clean_install_leftovers, cleanup_task_workspace).
 
 PROVIDER ROUTING:
   fable -> buyuk ve kesin kapsamli isler (yeniden yazim, coklu dosya, genis kapsam)
@@ -104,6 +108,74 @@ def apply_edits(worktree: Path, edits):
     return sorted(set(changed))
 
 
+def agent_install_dir():
+    """Ajanin KENDI kurulum dizini (bu paket agacinin koku: g17cloud/, guards/,
+    tests/ burada yasar). AI saglayicisina cwd ya da erisim kapsami olarak
+    ASLA verilmez — bkz. AIWorker.call."""
+    return Path(__file__).resolve().parent.parent
+
+
+# Bu isimler/onekler DISINDA HICBIR SEYE dokunulmaz. Bilerek DENYLIST degil
+# ALLOWLIST: kurulum dizininde Procfile, requirements.txt, README.md gibi
+# GERCEK dagitim dosyalari olabilir — yalniz KENDI gecici artik desenlerimiz
+# (worktree adlandirmasi + bilinen tarama ciktilari) silinir.
+_INSTALL_LEFTOVER_PREFIXES = ("wt-", "self-wt-")
+_INSTALL_LEFTOVER_NAMES = {"gobek17-app.zip", "manifest.json", "backup", ".smoke-state"}
+
+
+def clean_install_leftovers(root=None, log=None):
+    """GOREV BASINDA HAZIRLIK: kurulum dizininde onceki turlardan (crash,
+    eski surum) kalmis olabilecek BILINEN gecici artiklari siler.
+
+    Yalnizca ust-duzey (rglob DEGIL) ve YALNIZCA _INSTALL_LEFTOVER_PREFIXES /
+    _INSTALL_LEFTOVER_NAMES ile eslesen girdilere dokunur. Ajanin gercek
+    kaynak agaci (g17cloud/, guards/, tests/) ve dagitim dosyalari
+    (Procfile, requirements.txt, README.md, vb.) bu desenlerle ASLA
+    eslesmez ve dokunulmadan kalir.
+    """
+    log = log or (lambda *a, **k: None)
+    base = Path(root) if root is not None else agent_install_dir()
+    removed = []
+    if not base.is_dir():
+        return removed
+    for entry in sorted(base.iterdir()):
+        name = entry.name
+        if not (name.startswith(_INSTALL_LEFTOVER_PREFIXES) or name in _INSTALL_LEFTOVER_NAMES):
+            continue
+        try:
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                entry.unlink()
+            removed.append(name)
+        except OSError:
+            continue
+    if removed:
+        log("kurulum dizini temizlendi (artik): %s" % ", ".join(removed))
+    return removed
+
+
+def cleanup_task_workspace(cfg, task_id, log=None):
+    """GOREV SONUNDA TEMIZLIK: o goreve ait gecici dosya/dizin ve worktree
+    kaydini kaldirir. Basarili da basarisiz da bitse cagirilir.
+
+    Yalnizca work_dir altindaki, o gorev id'sine ait BILINEN gecici yollara
+    dokunur; kalici state_dir (tasks/artifacts/release.lock), git deposu ya
+    da log/gorev kayitlarina KESINLIKLE DOKUNMAZ.
+    """
+    log = log or (lambda *a, **k: None)
+    wd = Path(cfg.work_dir)
+    removed = []
+    for name in ("wt-%s" % task_id, "self-wt-%s" % task_id):
+        p = wd / name
+        if p.exists() or p.is_symlink():
+            shutil.rmtree(p, ignore_errors=True)
+            removed.append(str(p))
+    if removed:
+        log("gorev calisma alani temizlendi: %s" % ", ".join(removed))
+    return removed
+
+
 _FENCE = re.compile(r"```[a-zA-Z0-9_-]*\s*\n?(.*?)```", re.S)
 
 
@@ -197,7 +269,7 @@ class BaseProvider:
     def available(self):
         return False
 
-    def run(self, system, prompt, timeout):
+    def run(self, system, prompt, timeout, cwd=None):
         raise NotImplementedError
 
 
@@ -212,7 +284,9 @@ class AnthropicAPIProvider(BaseProvider):
     def available(self):
         return bool(self.cfg.ai_key())
 
-    def run(self, system, prompt, timeout=900):
+    def run(self, system, prompt, timeout=900, cwd=None):
+        # HTTP API cagrisi: dosya sistemine hic dokunmaz, cwd bu saglayici
+        # icin anlamsizdir ama arayuz tutarliligi icin kabul edilir.
         body = {
             "model": self.model,
             "max_tokens": 8000,
@@ -284,6 +358,11 @@ class ClaudeCLIProvider(BaseProvider):
     def run(self, system, prompt, timeout=900, cwd=None):
         if not self.available():
             raise AIError("CLAUDE_PROVIDER_UNSAFE: --tools yok, kisitlanamiyor")
+        if not cwd:
+            # Calisma alani izolasyonu: cwd VERILMEDEN calistirilmaz. Bos
+            # birakilirsa alt surec varsayilan olarak ajanin KENDI kurulum
+            # dizinini gorurdu — bu asla olmamali (fail-closed).
+            raise AIError("CLAUDE_PROVIDER_UNSAFE: izole worktree cwd verilmeden calistirilamaz")
         env = scrub_env(os.environ)
         # ABONELIK KIMLIGI: scrub_env altyapi sirlarini siler; model kimligini
         # burada BILEREK geri koyariz — CLI'nin tek ihtiyaci budur.
@@ -329,7 +408,7 @@ class ClaudeCLIProvider(BaseProvider):
              "--disallowedTools", self.DENY, "--permission-mode", "acceptEdits",
              "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
              "--append-system-prompt", system],
-            input=prompt, cwd=str(cwd or "."), env=env,
+            input=prompt, cwd=str(cwd), env=env,
             capture_output=True, text=True, timeout=timeout)
         return p.stdout
 
@@ -345,8 +424,9 @@ class MockProvider(BaseProvider):
     def available(self):
         return bool(self.script and Path(self.script).is_file())
 
-    def run(self, system, prompt, timeout=60):
+    def run(self, system, prompt, timeout=60, cwd=None):
         p = subprocess.run(["/bin/sh", self.script], input=prompt,
+                           cwd=str(cwd) if cwd else None,
                            capture_output=True, text=True, timeout=timeout,
                            env=scrub_env(os.environ))
         if p.returncode != 0:
@@ -402,5 +482,17 @@ class AIWorker:
             raise AIError("AI saglayici kullanilamiyor: %s" % name)
         return prov
 
-    def call(self, provider, system, prompt, timeout=None):
-        return provider.run(system, prompt, timeout or self.cfg.ai_timeout)
+    def call(self, provider, system, prompt, timeout=None, cwd=None):
+        """Saglayiciya giden calisma dizini HER ZAMAN gorevin izole worktree'sidir.
+
+        Ajanin kurulum dizini (agent_install_dir) hicbir kosulda buradan
+        gecirilemez — cagiran cwd vermezse ya da cwd kurulum dizinine denk
+        gelir/kesisirse istek fail-closed REDDEDILIR.
+        """
+        if not cwd:
+            raise AIError("ic hata: AI saglayicisina izole worktree cwd verilmedi")
+        root = Path(cwd).resolve()
+        inst = agent_install_dir()
+        if root == inst or inst in root.parents or root in inst.parents:
+            raise AIError("guvenlik: AI calisma alani ajan kurulum dizinine denk geliyor")
+        return provider.run(system, prompt, timeout or self.cfg.ai_timeout, cwd=str(root))

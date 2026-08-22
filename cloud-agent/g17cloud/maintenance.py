@@ -233,6 +233,9 @@ class MaintenancePipeline:
         wt = None
         gh = self.gh()
         try:
+            # --- 0 kurulum dizini hijyeni -----------------------------------
+            aiw.clean_install_leftovers(log=self.log)
+
             # --- 1 PREPARED: temiz klon + izole worktree --------------------
             self._ev(task_id, "prepare", "ajan reposu hazirlaniyor")
             gh.clone_or_update()
@@ -246,7 +249,7 @@ class MaintenancePipeline:
             self._ev(task_id, "inspect", "bakim modu — saglayici: %s"
                      % getattr(provider, "name", "?"))
             prompt = self._prompt(wt, rec["task"])
-            raw = self.ai.call(provider, SYSTEM, prompt)
+            raw = self.ai.call(provider, SYSTEM, prompt, cwd=wt)
             plan = parse_json_block(raw)
             edits = plan.get("edits") or []
             if not edits:
@@ -321,6 +324,7 @@ class MaintenancePipeline:
                     gh.remove_worktree(wt)
                 except Exception:
                     pass
+            aiw.cleanup_task_workspace(self.cfg, task_id, log=self.log)
 
     # ---------------------------------------------------------------- resume
     def resume(self, task_id):

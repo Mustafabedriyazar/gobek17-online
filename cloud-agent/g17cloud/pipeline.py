@@ -154,6 +154,11 @@ class Pipeline:
         try:
             rec = self.store.update(task_id, status="running", phase="prepare")
 
+            # --- 0 kurulum dizini hijyeni ---------------------------------------
+            # Onceki turdan (crash, eski surum vb.) kurulum dizininde artik
+            # kalmis olabilir; goreve baslamadan temizlenir.
+            aiw.clean_install_leftovers(log=self.log)
+
             # --- 1 repo -------------------------------------------------------
             self._ev(task_id, "prepare", "repo hazirlaniyor")
             self.gh.clone_or_update()
@@ -176,7 +181,7 @@ class Pipeline:
                      provider=getattr(provider, "name", provider_name))
             plan_raw = self.ai.call(provider, SYSTEM_CONTEXT, INSPECT_PROMPT.format(
                 build=build, parent=parent, task=rec["task"],
-                context=self.repo_context(wt, build)))
+                context=self.repo_context(wt, build)), cwd=wt)
             plan = parse_json_block(plan_raw)
             if not plan.get("reproduced"):
                 return self._fail(rec, "REPRODUCE", "AI sorunu reproduce edemedi",
@@ -194,7 +199,7 @@ class Pipeline:
             impl_raw = self.ai.call(provider, SYSTEM_CONTEXT, IMPLEMENT_PROMPT.format(
                 build=build, task=rec["task"], rootCause=plan.get("rootCause", ""),
                 minimalFix=plan.get("minimalFix", ""),
-                files=self.file_context(wt, plan.get("files"))))
+                files=self.file_context(wt, plan.get("files"))), cwd=wt)
             impl = parse_json_block(impl_raw)
             changed = apply_edits(wt, impl.get("edits"))
             if not changed:
@@ -218,7 +223,7 @@ class Pipeline:
                                     for f in tests["failed"])[:6000]
                 rep_raw = self.ai.call(provider, SYSTEM_CONTEXT, REPAIR_PROMPT.format(
                     attempt=attempt, max=self.cfg.max_repair, failure=failure,
-                    changed=", ".join(changed)))
+                    changed=", ".join(changed)), cwd=wt)
                 rep = parse_json_block(rep_raw)
                 changed = sorted(set(changed) | set(apply_edits(wt, rep.get("edits"))))
                 tests = self.guard.run_tests(wt, build)
@@ -332,6 +337,8 @@ class Pipeline:
                     self.gh.remove_worktree(wt)
                 except Exception:
                     pass
+            # Basarili da basarisiz da bitse: o goreve ait gecici alan kalkar.
+            aiw.cleanup_task_workspace(self.cfg, task_id, log=self.log)
 
     # ------------------------------------------------------------------ damga
     def _stamp(self, build, title):
