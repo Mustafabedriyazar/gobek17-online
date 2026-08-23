@@ -78,7 +78,8 @@ ok &= t("8 tek kaynak: pipeline+maintenance ortak AIWorker, claude argv tek yerd
         "AIWorker(cfg" in pipe_src and "AIWorker(cfg" in maint_src
         and pipe_src.count('"--print"') == 0 and maint_src.count('"--print"') == 0
         and aiw_src.count('"--print", allow_flag') == 1
-        and aiw_src.count('"--tools"') == 0)
+        and aiw_src.count('tf = "--tools"') == 0
+        and aiw_src.count('"--print", "--tools"') == 0)
 
 print("TOPLAM:", "PASS" if ok else "FAIL")
 sys.exit(0 if ok else 1)
