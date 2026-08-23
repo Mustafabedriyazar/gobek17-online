@@ -73,6 +73,22 @@ def safe_join(root: Path, rel: str) -> Path:
     return p
 
 
+def edit_path(ed):
+    """Bir edit girdisinden yol alanini cozer.
+
+    "path" ONCELIKLIDIR; yoksa/bossa "file" sonra "filename" denenir —
+    boylece AI alternatif alan adiyla gelirse girdi kaybolmaz. Ilk turde
+    (implement) ve onarim turunde (repair) AYNI cozumleme kullanilir.
+    """
+    if not isinstance(ed, dict):
+        return ""
+    for key in ("path", "file", "filename"):
+        v = ed.get(key)
+        if v:
+            return v
+    return ""
+
+
 def apply_edits(worktree: Path, edits):
     """AI'nin ONERDIGI degisiklikleri BIZ uygularz. AI'nin eli klavyede degil."""
     changed = []
@@ -80,7 +96,7 @@ def apply_edits(worktree: Path, edits):
         if not isinstance(ed, dict):
             continue
         action = (ed.get("action") or "replace").lower()
-        rel = ed.get("path") or ""
+        rel = edit_path(ed)
         target = safe_join(worktree, rel)
         if action == "delete":
             if target.is_file():
@@ -111,16 +127,17 @@ def apply_edits(worktree: Path, edits):
 def split_repair_edits(edits):
     """ONARIM TURU icin edit girdilerini ayirir.
 
-    path'i bos/eksik olan (ya da dict OLMAYAN) girdiler YOK SAYILIR — raise
-    EDILMEZ; digerleri degismeden dondurulur. Yalnizca onarim turu (pipeline
-    repair loop) icin kullanilir; ilk uygulama (implement) apply_edits'i
-    dogrudan cagirir ve orada bos path halen UnsafeEdit ile REDDEDILIR.
+    Yol alani (path, yoksa file/filename — bkz. edit_path) bos/eksik olan
+    (ya da dict OLMAYAN) girdiler YOK SAYILIR — raise EDILMEZ; digerleri
+    degismeden dondurulur. Yalnizca onarim turu (pipeline repair loop) icin
+    kullanilir; ilk uygulama (implement) apply_edits'i dogrudan cagirir ve
+    orada bos path halen UnsafeEdit ile REDDEDILIR.
 
     Donus: (gecerli_edits, yok_sayilan_sayisi)
     """
     valid, ignored = [], 0
     for ed in edits or []:
-        if not isinstance(ed, dict) or not str(ed.get("path") or "").strip():
+        if not isinstance(ed, dict) or not str(edit_path(ed) or "").strip():
             ignored += 1
             continue
         valid.append(ed)

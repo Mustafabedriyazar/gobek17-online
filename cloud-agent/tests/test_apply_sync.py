@@ -163,3 +163,131 @@ def check_apply_repair_edits_ignored_total_accumulates_across_rounds():
         assert total2 == 2, total2
     finally:
         shutil.rmtree(d, ignore_errors=True)
+
+
+# =========================================================== onarim turu edit sozlesmesi
+# Onarim turu, ilk uygulama turuyla AYNI edit sozlesmesini kullanir: "path"
+# alani yoksa "file" veya "filename" alanlari da path olarak kabul edilir
+# (bkz. g17cloud.ai_worker.edit_path). Hicbir yol alani yoksa girdi YOK
+# SAYILIR — bu mevcut dogrulamayi degistirmez.
+
+def check_edit_path_accepts_file_field_when_path_missing():
+    from g17cloud.ai_worker import edit_path
+    ed = {"file": "server/x.txt", "action": "create", "new": "x"}
+    assert edit_path(ed) == "server/x.txt", edit_path(ed)
+
+
+def check_edit_path_accepts_filename_field_when_path_missing():
+    from g17cloud.ai_worker import edit_path
+    ed = {"filename": "server/y.txt", "action": "create", "new": "y"}
+    assert edit_path(ed) == "server/y.txt", edit_path(ed)
+
+
+def check_edit_path_prefers_path_over_file_and_filename():
+    from g17cloud.ai_worker import edit_path
+    ed = {"path": "server/real.txt", "file": "server/wrong1.txt",
+         "filename": "server/wrong2.txt"}
+    assert edit_path(ed) == "server/real.txt", edit_path(ed)
+
+
+def check_edit_path_empty_when_no_path_field_present():
+    from g17cloud.ai_worker import edit_path
+    assert edit_path({"action": "create", "new": "x"}) == ""
+    assert edit_path("gecersiz-girdi") == ""
+
+
+def check_apply_edits_accepts_file_field_as_path():
+    from g17cloud.ai_worker import apply_edits
+    d = tmpdir()
+    try:
+        wt = Path(d) / "wt"; wt.mkdir()
+        changed = apply_edits(wt, [{"file": "server/from-file.txt",
+                                    "action": "create", "new": "hello"}])
+        assert changed == ["server/from-file.txt"], changed
+        assert (wt / "server" / "from-file.txt").read_text(encoding="utf-8") == "hello"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def check_apply_edits_accepts_filename_field_as_path():
+    from g17cloud.ai_worker import apply_edits
+    d = tmpdir()
+    try:
+        wt = Path(d) / "wt"; wt.mkdir()
+        changed = apply_edits(wt, [{"filename": "server/from-filename.txt",
+                                    "action": "create", "new": "hi"}])
+        assert changed == ["server/from-filename.txt"], changed
+        assert (wt / "server" / "from-filename.txt").read_text(encoding="utf-8") == "hi"
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def check_split_repair_edits_accepts_file_and_filename_fields():
+    from g17cloud.ai_worker import split_repair_edits
+    edits = [
+        {"file": "server/a.txt", "action": "create", "new": "a"},
+        {"filename": "server/b.txt", "action": "create", "new": "b"},
+        {"action": "create", "new": "yol alani yok"},
+    ]
+    valid, ignored = split_repair_edits(edits)
+    assert ignored == 1, ignored
+    assert sorted(e.get("file") or e.get("filename") for e in valid) == \
+        ["server/a.txt", "server/b.txt"], valid
+
+
+def check_split_repair_edits_ignores_entry_with_no_path_field_at_all():
+    from g17cloud.ai_worker import split_repair_edits
+    edits = [{"action": "create", "new": "hicbir yol alani yok"}]
+    valid, ignored = split_repair_edits(edits)
+    assert valid == [], valid
+    assert ignored == 1, ignored
+
+
+def check_repair_edit_with_file_field_applied_via_apply_repair_edits():
+    from g17cloud.pipeline import apply_repair_edits
+    d = tmpdir()
+    try:
+        wt = Path(d) / "wt"; wt.mkdir()
+        rep = {"edits": [{"file": "server/via-file.txt", "action": "create", "new": "z"}],
+              "summary": "file alaniyla geldi"}
+        changed, total, this_round = apply_repair_edits(wt, rep, 1, 3, 0)
+        assert changed == ["server/via-file.txt"], changed
+        assert this_round == 0, this_round
+        assert total == 0, total
+        assert (wt / "server" / "via-file.txt").is_file()
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+def check_repair_edit_with_filename_field_applied_via_apply_repair_edits():
+    from g17cloud.pipeline import apply_repair_edits
+    d = tmpdir()
+    try:
+        wt = Path(d) / "wt"; wt.mkdir()
+        rep = {"edits": [{"filename": "server/via-filename.txt",
+                          "action": "create", "new": "z"}],
+              "summary": "filename alaniyla geldi"}
+        changed, total, this_round = apply_repair_edits(wt, rep, 1, 3, 0)
+        assert changed == ["server/via-filename.txt"], changed
+        assert this_round == 0, this_round
+        assert (wt / "server" / "via-filename.txt").is_file()
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+# ============================================ onarim promptu: edit sozlesmesi
+def check_repair_prompt_contains_same_edit_contract_as_implement():
+    from g17cloud.pipeline import REPAIR_PROMPT
+    rp = REPAIR_PROMPT.format(attempt=1, max=3, failure="hata ciktisi",
+                              changed="server/x.js", build=171)
+    for token in ('"path"', '"action"', '"new"', '"old"', 'replace', 'create'):
+        assert token in rp, "onarim promptunda edit sozlesmesi eksik: %s" % token
+    assert "BOS BIRAKILAMAZ" in rp, "onarim promptunda bos path yasagi acikca yok"
+
+
+def check_repair_prompt_has_example_edit_entry_format():
+    from g17cloud.pipeline import REPAIR_PROMPT
+    rp = REPAIR_PROMPT.format(attempt=1, max=3, failure="hata ciktisi",
+                              changed="server/x.js", build=171)
+    assert '"path": "server/x.cjs"' in rp, "ornek edit girdisi bulunamadi"
+    assert '"action": "replace"' in rp, "ornek edit girdisinde action alani yok"

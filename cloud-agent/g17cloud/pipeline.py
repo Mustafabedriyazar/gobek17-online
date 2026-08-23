@@ -88,17 +88,29 @@ Testler FAIL etti. Hata ciktisi:
 
 Su ana kadarki degisiklikler: {changed}
 
-Hatayi gider. Ayni JSON formatinda "edits" dondur. Kapsami GENISLETME.
+Hatayi gider. Ilk uygulama turuyla AYNI edit sozlesmesini kullanarak yalnizca
+su JSON'u dondur:
+{{"edits": [
+   {{"path": "server/x.cjs", "action": "replace", "old": "tam eslesen mevcut metin",
+     "new": "yeni metin"}},
+   {{"path": "server/test-v{build}-x.cjs", "action": "create", "new": "dosya icerigi"}}
+ ],
+ "summary": "tek cumle"}}
+Her edit girdisi "path" (worktree'ye gore TAM dosya yolu — BOS BIRAKILAMAZ),
+"action" ("replace"|"create"|"delete") ve icerik alanlarini ("new", gerekirse
+"old") tasir. "old" alani dosyada TAM OLARAK BIR KEZ gecmelidir. Kapsami
+GENISLETME.
 """
 
 
 def apply_repair_edits(wt, rep, attempt, max_attempts, ignored_total):
     """ONARIM TURU EDIT DOGRULAMASI.
 
-    Onarim turundan gelen "edits" listesinde path'i bos/eksik olan girdiler
-    YOK SAYILIR (raise EDILMEZ); gecerli girdiler normal sekilde uygulanir.
-    Listede hicbir gecerli girdi kalmazsa GuardFailure(REPAIR_INVALID_EDITS)
-    firlatir; mesaj o turda kac girdinin yok sayildigini belirtir.
+    Onarim turundan gelen "edits" listesinde yol alani (path, yoksa file/
+    filename — bkz. aiw.edit_path) bos/eksik olan girdiler YOK SAYILIR (raise
+    EDILMEZ); gecerli girdiler normal sekilde uygulanir. Listede hicbir
+    gecerli girdi kalmazsa GuardFailure(REPAIR_INVALID_EDITS) firlatir;
+    mesaj o turda kac girdinin yok sayildigini belirtir.
 
     Ilk uygulama (implement) turunu ETKILEMEZ — orada apply_edits dogrudan
     cagrilir ve bos path halen UnsafeEdit ile REDDEDILIR (bkz. run()).
@@ -280,7 +292,7 @@ class Pipeline:
                                     for f in tests["failed"])[:6000]
                 rep_raw = self.ai.call(provider, SYSTEM_CONTEXT, REPAIR_PROMPT.format(
                     attempt=attempt, max=self.cfg.max_repair, failure=failure,
-                    changed=", ".join(changed)), cwd=wt)
+                    changed=", ".join(changed), build=build), cwd=wt)
                 rep = parse_json_block(rep_raw)
                 new_changed, ignored_repair_edits, ignored_now = apply_repair_edits(
                     wt, rep, attempt, self.cfg.max_repair, ignored_repair_edits)
