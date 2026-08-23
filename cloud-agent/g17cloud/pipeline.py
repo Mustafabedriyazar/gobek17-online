@@ -92,6 +92,30 @@ Hatayi gider. Ayni JSON formatinda "edits" dondur. Kapsami GENISLETME.
 """
 
 
+def apply_repair_edits(wt, rep, attempt, max_attempts, ignored_total):
+    """ONARIM TURU EDIT DOGRULAMASI.
+
+    Onarim turundan gelen "edits" listesinde path'i bos/eksik olan girdiler
+    YOK SAYILIR (raise EDILMEZ); gecerli girdiler normal sekilde uygulanir.
+    Listede hicbir gecerli girdi kalmazsa GuardFailure(REPAIR_INVALID_EDITS)
+    firlatir; mesaj o turda kac girdinin yok sayildigini belirtir.
+
+    Ilk uygulama (implement) turunu ETKILEMEZ — orada apply_edits dogrudan
+    cagrilir ve bos path halen UnsafeEdit ile REDDEDILIR (bkz. run()).
+
+    Donus: (bu_turda_degisen_dosyalar, guncel_toplam_yok_sayilan, bu_turda_yok_sayilan)
+    """
+    valid, ignored = aiw.split_repair_edits(rep.get("edits"))
+    ignored_total += ignored
+    if not valid:
+        raise GuardFailure(
+            "REPAIR_INVALID_EDITS",
+            "onarim turu %d/%d: uygulanacak gecerli edit yok (%d girdi yok sayildi — "
+            "path alani bos/eksik)" % (attempt, max_attempts, ignored),
+            {"attempt": attempt, "ignoredRepairEdits": ignored_total})
+    return apply_edits(wt, valid), ignored_total, ignored
+
+
 class Pipeline:
     def __init__(self, cfg, store, lock, log=None):
         self.cfg = cfg
@@ -241,6 +265,7 @@ class Pipeline:
 
             # --- 5 testler + onarim dongusu (SINIRLI) ------------------------------
             attempt = 0
+            ignored_repair_edits = 0
             tests = self.guard.run_tests(wt, build)
             while not tests["ok"]:
                 attempt += 1
@@ -257,13 +282,21 @@ class Pipeline:
                     attempt=attempt, max=self.cfg.max_repair, failure=failure,
                     changed=", ".join(changed)), cwd=wt)
                 rep = parse_json_block(rep_raw)
-                changed = sorted(set(changed) | set(apply_edits(wt, rep.get("edits"))))
+                new_changed, ignored_repair_edits, ignored_now = apply_repair_edits(
+                    wt, rep, attempt, self.cfg.max_repair, ignored_repair_edits)
+                if ignored_now:
+                    self._ev(task_id, "repair", "%d gecersiz edit (bos/eksik path) yok sayildi"
+                             % ignored_now)
+                changed = sorted(set(changed) | set(new_changed))
+                rec = self.store.update(task_id, result=dict(
+                    rec.get("result") or {}, ignoredRepairEdits=ignored_repair_edits))
                 tests = self.guard.run_tests(wt, build)
             self._ev(task_id, "tests", tests["summary"])
             rec = self.store.update(task_id, attempts=attempt,
                                     result=dict(rec.get("result") or {},
                                                 tests=tests["summary"],
-                                                changedFiles=changed))
+                                                changedFiles=changed,
+                                                ignoredRepairEdits=ignored_repair_edits))
 
             # --- 6 GUARD ZINCIRI (release kilidi altinda) ---------------------------
             if not self.lock.acquire(task_id, build):

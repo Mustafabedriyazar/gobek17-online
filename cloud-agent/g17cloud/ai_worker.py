@@ -108,6 +108,25 @@ def apply_edits(worktree: Path, edits):
     return sorted(set(changed))
 
 
+def split_repair_edits(edits):
+    """ONARIM TURU icin edit girdilerini ayirir.
+
+    path'i bos/eksik olan (ya da dict OLMAYAN) girdiler YOK SAYILIR — raise
+    EDILMEZ; digerleri degismeden dondurulur. Yalnizca onarim turu (pipeline
+    repair loop) icin kullanilir; ilk uygulama (implement) apply_edits'i
+    dogrudan cagirir ve orada bos path halen UnsafeEdit ile REDDEDILIR.
+
+    Donus: (gecerli_edits, yok_sayilan_sayisi)
+    """
+    valid, ignored = [], 0
+    for ed in edits or []:
+        if not isinstance(ed, dict) or not str(ed.get("path") or "").strip():
+            ignored += 1
+            continue
+        valid.append(ed)
+    return valid, ignored
+
+
 def agent_install_dir():
     """Ajanin KENDI kurulum dizini (bu paket agacinin koku: g17cloud/, guards/,
     tests/ burada yasar). AI saglayicisina cwd ya da erisim kapsami olarak
