@@ -356,11 +356,44 @@ class AnthropicAPIProvider(BaseProvider):
         return "\n".join(parts)
 
 
+def g17_resolve_tool_flags(help_text):
+    """CLI help ciktisindan guvenli allow/deny bayraklarini sec (Faz 0).
+
+    Yalnizca GERCEK option satirlari sayilir: satir basi, en cok 12
+    bosluk girinti ve istege bagli kisa bayrak (-x,) sonrasi dogrudan
+    --bayrak ile baslamalidir. Aciklama icinde gecen deprecated --tools
+    gibi sozler capability sayilmaz.
+    Oncelik: --allowedTools > --allowed-tools > --tools.
+    Allow VEYA deny cozulemiyorsa fail-closed (CLI_CAPABILITY_MISMATCH).
+    """
+    h = help_text or ""
+    declared = set(re.findall(
+        r"(?m)^[ \t]{0,12}(?:-[A-Za-z][ \t]*,[ \t]*)?(--[A-Za-z][A-Za-z0-9-]*)",
+        h))
+    allow = next((f for f in ("--allowedTools", "--allowed-tools", "--tools")
+                  if f in declared), None)
+    deny = next((f for f in ("--disallowedTools", "--disallowed-tools")
+                 if f in declared), None)
+    if not allow or not deny:
+        raise AIError(
+            "CLI_CAPABILITY_MISMATCH: guvenli allow/deny arac bayraklari "
+            "help option satirlarinda bulunamadi")
+    return allow, deny
+
+
+def g17_probe_ok(help_text):
+    try:
+        g17_resolve_tool_flags(help_text)
+        return True
+    except AIError:
+        return False
+
+
 class ClaudeCLIProvider(BaseProvider):
     """Claude Code CLI adaptoru — v1.2.1 politikasi korunur.
 
-    GERCEK ALLOWLIST yalnizca --tools ile uygulanir; --allowedTools tek basina
-    arac MEVCUDIYETINI kisitlamadigi icin FALLBACK OLARAK KULLANILMAZ.
+    Bayrak secimi CLI help ciktisindaki GERCEK option satirlarindan yapilir
+    (g17_resolve_tool_flags); aciklama metnindeki bayrak sozleri sayilmaz.
     Bayrak yoksa saglayici KULLANILAMAZ sayilir (fail-closed).
     """
     name = "claude-cli"
@@ -388,12 +421,11 @@ class ClaudeCLIProvider(BaseProvider):
         if not (self.cfg.subscription_available() or self.cfg.ai_key()):
             return False
         h = self._help()
-        return bool(re.search(r"(^|[^-])--tools([^A-Za-z-]|$)", h)
-                    or re.search(r"--allowed-?[tT]ools", h))
+        return g17_probe_ok(h)
 
     def run(self, system, prompt, timeout=900, cwd=None):
         if not self.available():
-            raise AIError("CLAUDE_PROVIDER_UNSAFE: --tools yok, kisitlanamiyor")
+            raise AIError("CLAUDE_PROVIDER_UNSAFE: saglayici hazir degil (CLI, kimlik veya guvenli bayrak yok)")
         if not cwd:
             # Calisma alani izolasyonu: cwd VERILMEDEN calistirilmaz. Bos
             # birakilirsa alt surec varsayilan olarak ajanin KENDI kurulum
@@ -438,10 +470,10 @@ class ClaudeCLIProvider(BaseProvider):
         # NOT: "--bare" KULLANILMAZ. Resmi dokumana gore bare modu
         # CLAUDE_CODE_OAUTH_TOKEN'i OKUMAZ; abonelik yolu sessizce bozulurdu.
         hh = self._help()
-        tf = "--tools" if re.search(r"(^|[^-])--tools([^A-Za-z-]|$)", hh) else "--allowedTools"
+        allow_flag, deny_flag = g17_resolve_tool_flags(hh)
         p = subprocess.run(
-            [self.command, "--print", tf, self.TOOLS,
-             "--disallowedTools", self.DENY, "--permission-mode", "acceptEdits",
+            [self.command, "--print", allow_flag, self.TOOLS,
+             deny_flag, self.DENY, "--permission-mode", "acceptEdits",
              "--strict-mcp-config", "--mcp-config", '{"mcpServers":{}}',
              "--append-system-prompt", system],
             input=prompt, cwd=str(cwd), env=env,
