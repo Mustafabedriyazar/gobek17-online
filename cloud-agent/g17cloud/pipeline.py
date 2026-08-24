@@ -10,6 +10,7 @@ KILIT KURALI: AI fazlari kilitsiz (paralel arastirma serbest). Guard'dan
 production'a kadar olan zincir TEK release kilidi altinda calisir.
 """
 import json
+import shutil
 import time
 from pathlib import Path
 
@@ -142,6 +143,75 @@ def repair_failure_signature(entry):
     return "%s::%s" % (err_type, entry.get("test") or "?")
 
 
+_state_sweep_done = False
+
+
+def _sweep_stale_state_once(cfg, gh, ev, task_id):
+    """GOREV-ONCESI TEK SEFERLIK TEMIZLIK (INFRA-1C): eski durum agaclarini
+    ve orphan worktree'leri guvenle supurur.
+
+    Surec omru boyunca EN FAZLA BIR KEZ calisir (modul-duzeyi bayrak).
+    Iki hedefi vardir: (1) guncel durum dizininin (cfg.state_dir) KARDESI
+    olan, adi "g17" ile baslayan ve guncel dizinden FARKLI olan ESKI durum
+    agaclarini siler; (2) cfg.work_dir altinda kalmis, "wt-"/"self-wt-" ile
+    baslayan ve su anki gorevin worktree'si OLMAYAN orphan dizinleri siler,
+    ardindan git worktree kaydini prune eder. Yalnizca bu iki desene uyan
+    girdilere dokunulur — lost+found, log dosyalari ve guncel gorev/durum
+    dizinleri ASLA hedeflenmez. Herhangi bir silme hatasi burada YUTULUR ve
+    olay olarak raporlanir; cagiran taraf (Pipeline.run) yine de tum cagriyi
+    try/except ile sarar ki bir supurme hatasi ana gorevi DUSURMESIN.
+    """
+    global _state_sweep_done
+    if _state_sweep_done:
+        return
+    _state_sweep_done = True
+
+    state_dir = Path(cfg.state_dir).resolve()
+    parent_dir = state_dir.parent
+    try:
+        entries = sorted(parent_dir.iterdir()) if parent_dir.is_dir() else []
+    except OSError as ex:
+        entries = []
+        ev(task_id, "cleanup-sweep", "eski durum agaci taramasi basarisiz: %s" % str(ex)[:200])
+    for entry in entries:
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        if not entry.name.startswith("g17") or entry == state_dir:
+            continue
+        try:
+            freed = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
+            shutil.rmtree(entry)
+            ev(task_id, "cleanup-sweep",
+               "eski durum agaci silindi: %s (%d bayt kazanildi)" % (entry, freed))
+        except OSError as ex:
+            ev(task_id, "cleanup-sweep",
+               "eski durum agaci silinemedi (%s): %s" % (entry, str(ex)[:200]))
+
+    work_dir = Path(cfg.work_dir)
+    keep = {"wt-%s" % task_id, "self-wt-%s" % task_id}
+    try:
+        wt_entries = sorted(work_dir.iterdir()) if work_dir.is_dir() else []
+    except OSError as ex:
+        wt_entries = []
+        ev(task_id, "cleanup-sweep", "work dizini taramasi basarisiz: %s" % str(ex)[:200])
+    for entry in wt_entries:
+        if entry.is_symlink() or not entry.is_dir():
+            continue
+        if entry.name in keep or not entry.name.startswith(("wt-", "self-wt-")):
+            continue
+        try:
+            shutil.rmtree(entry)
+            ev(task_id, "cleanup-sweep", "orphan worktree dizini silindi: %s" % entry)
+        except OSError as ex:
+            ev(task_id, "cleanup-sweep",
+               "orphan worktree dizini silinemedi (%s): %s" % (entry, str(ex)[:200]))
+
+    try:
+        gh._git(["worktree", "prune"], cwd=cfg.repo_dir, check=False)
+    except Exception as ex:
+        ev(task_id, "cleanup-sweep", "git worktree prune basarisiz: %s" % str(ex)[:200])
+
+
 class Pipeline:
     def __init__(self, cfg, store, lock, log=None):
         self.cfg = cfg
@@ -262,6 +332,11 @@ class Pipeline:
         build = int(str(rec["build"]).lstrip("vV"))
         wt = None
         try:
+            try:
+                _sweep_stale_state_once(self.cfg, self.gh, self._ev, task_id)
+            except Exception as ex:
+                self._ev(task_id, "cleanup-sweep",
+                         "ESKI DURUM SUPURME HATASI (ana gorev ETKILENMEDI): %s" % str(ex)[:200])
             rec = self.store.update(task_id, status="running", phase="prepare")
 
             # --- PREFLIGHT: gorevin ILK ADIMI ------------------------------------
