@@ -346,6 +346,21 @@ def make_handler(svc: Service):
                 if not rec:
                     return self._send(404, {"ok": False, "error": "task bulunamadi"})
                 return self._send(200, {"ok": True, "task": rec})
+            if path.startswith("/worker/jobs/"):
+                # Cihaz worker is durumu: tek is kaydini okur (bkz. POST /worker/jobs).
+                job = svc.worker_queue.get(path[len("/worker/jobs/"):])
+                if not job:
+                    return self._send(404, {"ok": False, "error": "is bulunamadi"})
+                output = job.get("output")
+                truncated = False
+                if isinstance(output, str) and len(output) > 4000:
+                    output = output[-4000:]
+                    truncated = True
+                return self._send(200, {"ok": True, "id": job.get("id"), "status": job.get("status"),
+                                        "commands": job.get("commands"), "cwdLabel": job.get("cwdLabel"),
+                                        "createdAt": job.get("createdAt"), "leasedAt": job.get("leasedAt"),
+                                        "completedAt": job.get("completedAt"), "exitCode": job.get("exitCode"),
+                                        "output": output, "outputTruncated": truncated})
             return self._send(404, {"ok": False, "error": "bilinmeyen uc"})
 
         # -------------------------------------------------------------- POST
