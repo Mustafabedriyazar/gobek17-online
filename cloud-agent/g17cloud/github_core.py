@@ -175,6 +175,7 @@ class GitHubCore:
             self._git(["checkout", self.cfg.branch], cwd=rd)
             self._git(["merge", "--ff-only", "origin/" + self.cfg.branch], cwd=rd)
             self._fetch_extra_branch(rd)
+            self._merge_integration_branch(rd)
             return rd
         rd.parent.mkdir(parents=True, exist_ok=True)
         if rd.exists():
@@ -182,6 +183,7 @@ class GitHubCore:
         self._git(["clone", "--branch", self.cfg.branch, self.remote_url(), str(rd)],
                   cwd=rd.parent, timeout=900)
         self._fetch_extra_branch(rd)
+        self._merge_integration_branch(rd)
         return rd
 
     def _fetch_extra_branch(self, rd):
@@ -200,6 +202,34 @@ class GitHubCore:
             self.log("g17: ek dal getirildi: %s -> %s" % (branch, sha))
         except GitHubError as ex:
             self.log("g17: ek dal getirme basarisiz: %s (%s)" % (branch, ex))
+
+    def _merge_integration_branch(self, rd):
+        """G17_MERGE_BRANCH doluysa o dali (uzak izleme ref'i) ana dal
+        uzerine YEREL calisma agacinda birlestirir. Bos/tanimsizsa hicbir
+        sey yapmaz; davranis mevcut haliyle ayni kalir. Bu adim push YAPMAZ.
+        Cakisma ya da eksik ref durumunda hata FIRLATILIR (fail-closed)."""
+        branch = (os.environ.get("G17_MERGE_BRANCH") or "").strip()
+        if not branch:
+            return
+        remote_ref = "origin/" + branch
+        try:
+            self._git(["rev-parse", "--verify", remote_ref], cwd=rd)
+        except GitHubError:
+            raise GitHubError(
+                "g17: G17_MERGE_BRANCH icin uzak izleme ref'i bulunamadi: %s" % branch)
+        before = self._git(["rev-parse", "--short", "HEAD"], cwd=rd)
+        try:
+            self._git(["merge", "--no-ff", "--no-edit", remote_ref], cwd=rd)
+        except GitHubError as ex:
+            conflicts = self._git(["diff", "--name-only", "--diff-filter=U"],
+                                  cwd=rd, check=False)
+            self._git(["merge", "--abort"], cwd=rd, check=False)
+            names = ", ".join(x for x in conflicts.splitlines() if x) or "?"
+            raise GitHubError("g17: birlestirme cakismasi (%s): %s" % (names, ex))
+        after = self._git(["rev-parse", "--short", "HEAD"], cwd=rd)
+        changed = self._git(["diff", "--name-only", before, after], cwd=rd)
+        n = len([x for x in changed.splitlines() if x])
+        self.log("g17: birlestirme tamamlandi: %s -> %s (%d dosya)" % (branch, after, n))
 
     def remote_url(self):
         if self.cfg.repo.startswith(("http://", "https://", "/", "file://")):
