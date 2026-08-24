@@ -101,6 +101,33 @@ def write_last_known_good(cfg, sha, note=""):
     return sha
 
 
+def purge_pycache(root):
+    """Bakim turu bittiginde AJANIN ANA CHECKOUT'unda (self_repo_dir) kalabilecek
+    Python onbellek artiklarini temizler — selftest/smoke adimlari worktree'de
+    calisir ama bir onceki turdan artik kalmis olabilir ve bir sonraki gorevin
+    PREFLIGHT temizlik kontrolunu dusurur. Kapsam KESIN sinirli: yalnizca
+    __pycache__ dizinleri ve .pyc dosyalari silinir; izlenen dosyalara veya
+    baska turden hicbir izlenmeyen dosyaya DOKUNULMAZ; git reset/clean gibi
+    yikici komutlar KULLANILMAZ."""
+    import shutil as _shutil
+    root = Path(root)
+    if not root.is_dir():
+        return []
+    removed = []
+    for p in sorted(root.rglob("__pycache__"), key=lambda x: -len(str(x))):
+        if p.is_dir():
+            _shutil.rmtree(p, ignore_errors=True)
+            removed.append(str(p))
+    for p in root.rglob("*.pyc"):
+        if p.is_file():
+            try:
+                p.unlink()
+            except OSError:
+                pass
+            removed.append(str(p))
+    return removed
+
+
 class _SelfCfg:
     """cfg'nin repo/repo_dir alanlari AJANIN reposuna bakan ince sarmalayici.
 
@@ -346,6 +373,7 @@ class MaintenancePipeline:
                 except Exception:
                     pass
             aiw.cleanup_task_workspace(self.cfg, task_id, log=self.log)
+            purge_pycache(self.cfg.self_repo_dir)
 
     # ---------------------------------------------------------------- resume
     def resume(self, task_id):
