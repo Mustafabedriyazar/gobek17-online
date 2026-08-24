@@ -15,7 +15,27 @@ import time
 import urllib.error
 import urllib.request
 
-STAMP_RX = re.compile(r"gobek17-\d{2,4}-[a-z0-9-]+", re.I)
+STAMP_RX = re.compile(r"gobek17-\d{2,4}-[^\s\"',}]+", re.I)
+
+_TR_FOLD = str.maketrans({
+    "ı": "i", "İ": "i", "I": "i",
+    "ş": "s", "Ş": "s",
+    "ğ": "g", "Ğ": "g",
+    "ç": "c", "Ç": "c",
+    "ö": "o", "Ö": "o",
+    "ü": "u", "Ü": "u",
+})
+
+
+def normalize_stamp(text):
+    """Damgayi ASCII slug'a indirger. URETEN (surum uretimi) ile BEKLEYEN
+    (bu modul) taraf karsilastirma icin AYNI fonksiyonu kullanir — Turkce
+    karakterler yuzunden yanlis PRODUCTION FAILED alarmi cikmasin diye."""
+    if not text:
+        return text
+    folded = text.translate(_TR_FOLD).lower()
+    ascii_only = "".join(c if ("a" <= c <= "z" or "0" <= c <= "9") else "-" for c in folded)
+    return re.sub(r"-+", "-", ascii_only).strip("-")
 
 
 def fetch_build(url, timeout=12, opener=None):
@@ -62,7 +82,7 @@ class ProductionController:
             seen, last_state = fetch_build(self.cfg.health_url, opener=opener)
             if on_poll:
                 on_poll(seen, last_state, waited)
-            if seen and expected_stamp and seen == expected_stamp:
+            if seen and expected_stamp and normalize_stamp(seen) == normalize_stamp(expected_stamp):
                 return {"result": "PASS", "seen": seen, "waited": waited}
             sleep(interval)
             waited += interval
