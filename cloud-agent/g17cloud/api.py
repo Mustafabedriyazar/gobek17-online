@@ -143,6 +143,11 @@ class Service:
         self.started_at = int(time.time())
         self.workers = []
         self._stop = threading.Event()
+        # Cihaz worker kuyrugu: Termux worker'i periyodik yoklar (bkz. uclar
+        # /worker/jobs, /worker/lease, /worker/jobs/:id/result). Ajan hicbir
+        # komutu KENDISI calistirmaz; yalnizca is kaydini tutar.
+        from .worker_queue import WorkerQueue
+        self.worker_queue = WorkerQueue(self.cfg.state_dir)
 
     # ------------------------------------------------------------------ worker
     def start_workers(self, n=2):
@@ -348,6 +353,31 @@ def make_handler(svc: Service):
             path = urlparse(self.path).path.rstrip("/") or "/"
             if not self._authed():
                 return self._send(401, {"ok": False, "error": "unauthorized"})
+            if path == "/worker/jobs":
+                # Cihaz worker kuyrugu: yeni is ekler. Ajan komutu KENDISI
+                # calistirmaz; yalnizca kaydeder, Termux worker'i cekip calistirir.
+                b = self._body()
+                commands = b.get("commands")
+                if not isinstance(commands, list) or not commands or \
+                        not all(isinstance(c, str) and c.strip() for c in commands):
+                    return self._send(400, {"ok": False,
+                                            "error": "commands zorunlu (bos olmayan metin listesi)"})
+                job = svc.worker_queue.add(commands, b.get("cwdLabel"))
+                return self._send(202, {"ok": True, "id": job["id"], "status": job["status"]})
+            if path == "/worker/lease":
+                # Worker siradaki isi cekmek icin bunu yoklar. Bekleyen is
+                # yoksa job alani null doner (worker bos yanit alir, komut calistirmaz).
+                job = svc.worker_queue.lease()
+                return self._send(200, {"ok": True, "job": job})
+            if path.startswith("/worker/jobs/") and path.endswith("/result"):
+                # Worker sonucu geri yazar: cikti + cikis kodu.
+                job_id = path[len("/worker/jobs/"):-len("/result")]
+                b = self._body()
+                job = svc.worker_queue.report(job_id, b.get("output"), b.get("exitCode"),
+                                              ok=bool(b.get("ok", True)))
+                if not job:
+                    return self._send(404, {"ok": False, "error": "is bulunamadi"})
+                return self._send(200, {"ok": True, "id": job["id"], "status": job["status"]})
             if path != "/tasks":
                 return self._send(404, {"ok": False, "error": "bilinmeyen uc"})
             b = self._body()
