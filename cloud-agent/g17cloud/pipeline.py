@@ -478,13 +478,26 @@ class Pipeline:
         except Exception as ex:                                    # beklenmeyen
             return self._fail(rec, "INTERNAL", "%s: %s" % (type(ex).__name__, str(ex)[:200]))
         finally:
+            # GARANTILI TEMIZLIK: gorev hangi sonucla biterse bitsin (basari,
+            # basarisizlik, ic hata, zaman asimi, istisna) BU gorevin kendi
+            # worktree'si silinir. Temizlik sirasinda hata olursa ana gorev
+            # sonucu (yukaridaki return/exception) GIZLENMEZ — hata burada
+            # yutulmaz, ayri bir "cleanup" olay mesaji olarak raporlanir.
+            cleanup_errors = []
             if wt:
                 try:
                     self.gh.remove_worktree(wt)
-                except Exception:
-                    pass
-            # Basarili da basarisiz da bitse: o goreve ait gecici alan kalkar.
-            aiw.cleanup_task_workspace(self.cfg, task_id, log=self.log)
+                except Exception as cex:
+                    cleanup_errors.append("remove_worktree: %s" % str(cex)[:200])
+            try:
+                # Basarili da basarisiz da bitse: o goreve ait gecici alan kalkar.
+                aiw.cleanup_task_workspace(self.cfg, task_id, log=self.log)
+            except Exception as cex:
+                cleanup_errors.append("cleanup_task_workspace: %s" % str(cex)[:200])
+            if cleanup_errors:
+                self._ev(task_id, "cleanup",
+                         "WORKTREE TEMIZLIK HATASI (ana gorev sonucu ETKILENMEDI): %s"
+                         % "; ".join(cleanup_errors))
 
     # ------------------------------------------------------------------ damga
     def _stamp(self, build, title):
