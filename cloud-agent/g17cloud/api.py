@@ -18,10 +18,12 @@ kapaliysa servis yazma uclarini REDDEDER (internete acik olacagi icin).
 import json
 import queue
 import secrets
+import shutil
 import threading
 import time
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from urllib.parse import urlparse
 
 from .config import NAME, VERSION, Config
@@ -31,6 +33,41 @@ from .maintenance import MaintenancePipeline, is_maintenance
 from .pipeline import Pipeline
 from .production import ProductionController
 from .store import ReleaseLock, TaskStore, resolve_task_mode
+
+# Bos alan esikleri: /health disk.status bu esiklerin altinda warning/critical
+# isaretlenir. Olcum YALNIZ istek aninda calisir (modul yuklenirken DEGIL).
+_DISK_WARN_FREE_PCT = 15.0
+_DISK_CRIT_FREE_PCT = 5.0
+
+
+def _disk_snapshot(cfg):
+    """Calisma state dizininin bagli oldugu mountun anlik disk durumu.
+
+    Sir icermez. Olcum hata verirse /health ASLA patlamaz; error alaniyla
+    doner, diger saglik alanlari etkilenmez."""
+    mount = str(cfg.state_dir)
+    try:
+        usage = shutil.disk_usage(mount)
+        total, free = usage.total, usage.free
+        used = total - free
+        used_pct = round((used / total) * 100, 2) if total else 0.0
+        free_pct = round((free / total) * 100, 2) if total else 0.0
+        wt_count = 0
+        work_dir = Path(cfg.work_dir)
+        if work_dir.is_dir():
+            wt_count = sum(1 for e in work_dir.iterdir()
+                           if e.is_dir() and (e.name.startswith("wt-") or
+                                               e.name.startswith("self-wt-")))
+        status = "ok"
+        if free_pct < _DISK_CRIT_FREE_PCT:
+            status = "critical"
+        elif free_pct < _DISK_WARN_FREE_PCT:
+            status = "warning"
+        return {"mount": mount, "totalBytes": total, "usedBytes": used,
+                "freeBytes": free, "usedPct": used_pct,
+                "worktreeCount": wt_count, "status": status}
+    except Exception as ex:
+        return {"mount": mount, "error": type(ex).__name__}
 
 
 # ============================================================================
@@ -334,7 +371,8 @@ def make_handler(svc: Service):
                 return self._send(200 if ready else 503, body)
             if path == "/health":
                 return self._send(200, {"ok": True, "name": NAME, "version": VERSION,
-                                        "uptimeSec": int(time.time()) - svc.started_at})
+                                        "uptimeSec": int(time.time()) - svc.started_at,
+                                        "disk": _disk_snapshot(svc.cfg)})
             if not self._authed():
                 return self._send(401, {"ok": False, "error": "unauthorized"})
             if path == "/status":
