@@ -303,7 +303,17 @@ class Pipeline:
                 minimalFix=plan.get("minimalFix", ""),
                 files=self.file_context(wt, plan.get("files"))), cwd=wt)
             impl = parse_json_block(impl_raw)
-            changed = apply_edits(wt, impl.get("edits"))
+            edits = impl.get("edits") or []
+            if not edits and (rec.get("mode") or DEFAULT_TASK_MODE) == "chore":
+                rec = self.store.update(task_id, status="success", phase="done",
+                                        result=dict(rec.get("result") or {},
+                                                    outcome="NO_CHANGE_REQUIRED",
+                                                    push="SKIPPED",
+                                                    production="UNCHANGED"))
+                self._ev(task_id, "done",
+                         "NO_CHANGE_REQUIRED: chore modunda degisiklik gerekmedi — commit/push YOK")
+                return rec
+            changed = apply_edits(wt, edits)
             if not changed:
                 return self._fail(rec, "IMPLEMENT", "AI hicbir degisiklik uretmedi")
             self._ev(task_id, "implement", "%d dosya degisti" % len(changed),

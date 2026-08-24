@@ -35,6 +35,7 @@ from . import ai_worker as aiw
 from .ai_worker import AIError, AIWorker, apply_edits, parse_json_block, route_provider
 from .github_core import GitHubCore, GitHubError
 from .release_guard import GuardFailure, ReleaseGuard, preflight
+from .store import DEFAULT_TASK_MODE
 
 # --- durum makinesi ---------------------------------------------------------
 PREPARED = "PREPARED"
@@ -300,6 +301,15 @@ class MaintenancePipeline:
             raw = self.ai.call(provider, SYSTEM, prompt, cwd=wt)
             plan = parse_json_block(raw)
             edits = plan.get("edits") or []
+            if not edits and (rec.get("mode") or DEFAULT_TASK_MODE) == "chore":
+                self.store.update(task_id, status="success", phase="done",
+                                  result=dict(rec.get("result") or {},
+                                              outcome="NO_CHANGE_REQUIRED",
+                                              selfState="NO_CHANGE_REQUIRED",
+                                              push="SKIPPED"))
+                self._ev(task_id, "done",
+                         "NO_CHANGE_REQUIRED: chore modunda degisiklik gerekmedi — commit/push YOK")
+                return self.store.get(task_id)
             if not edits:
                 return self._fail(task_id, "EDIT", "AI hicbir degisiklik onermedi")
             self.check_paths([e.get("path") for e in edits])
