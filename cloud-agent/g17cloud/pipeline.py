@@ -10,6 +10,7 @@ KILIT KURALI: AI fazlari kilitsiz (paralel arastirma serbest). Guard'dan
 production'a kadar olan zincir TEK release kilidi altinda calisir.
 """
 import json
+import os
 import shutil
 import time
 from pathlib import Path
@@ -389,6 +390,20 @@ class Pipeline:
             # --- 1 repo -------------------------------------------------------
             self._ev(task_id, "prepare", "repo hazirlaniyor")
             self.gh.clone_or_update()
+            extra_branch = (os.environ.get("G17_EXTRA_BRANCH") or "").strip()
+            if extra_branch:
+                try:
+                    self.gh._git(["fetch", "--quiet", "origin", extra_branch],
+                                 cwd=self.cfg.repo_dir)
+                    extra_sha = self.gh._git(
+                        ["rev-parse", "--short", "origin/%s" % extra_branch],
+                        cwd=self.cfg.repo_dir)
+                    self._ev(task_id, "prepare",
+                             "ek dal getirildi: %s (%s)" % (extra_branch, extra_sha))
+                except Exception as ex:
+                    self._ev(task_id, "prepare",
+                             "ek dal getirme basarisiz (%s): %s"
+                             % (extra_branch, str(ex)[:200]))
             parent = self.gh.short_head()
             auth = self.gh.auth_status()
             rec = self.store.update(task_id, result=dict(rec.get("result") or {},
