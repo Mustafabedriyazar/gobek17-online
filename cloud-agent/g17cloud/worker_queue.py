@@ -41,6 +41,7 @@ class WorkerQueue:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.lease_timeout = lease_timeout
         self._lock = threading.RLock()
+        self._next_seq = max([int(r.get("seq") or 0) for r in self._all()] or [0]) + 1
 
     def _path(self, job_id):
         return self.dir / ("%s.json" % job_id)
@@ -75,8 +76,12 @@ class WorkerQueue:
         listesi. Ajan bu komutlari KENDISI calistirmaz; yalnizca kaydeder,
         cihaz worker'i cekip kendi tarafinda calistirir."""
         job_id = new_job_id()
+        with self._lock:
+            seq = self._next_seq
+            self._next_seq += 1
         rec = {
             "id": job_id,
+            "seq": seq,
             "createdAt": now(),
             "updatedAt": now(),
             "status": "pending",
@@ -112,7 +117,7 @@ class WorkerQueue:
             pending = [r for r in self._all() if r.get("status") == "pending"]
             if not pending:
                 return None
-            pending.sort(key=lambda r: r.get("createdAt", 0))
+            pending.sort(key=lambda r: r.get("seq", 0))
             rec = pending[0]
             rec["status"] = "leased"
             rec["leasedAt"] = now()
