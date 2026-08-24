@@ -174,13 +174,32 @@ class GitHubCore:
             self._git(["fetch", "--quiet", "origin", self.cfg.branch], cwd=rd)
             self._git(["checkout", self.cfg.branch], cwd=rd)
             self._git(["merge", "--ff-only", "origin/" + self.cfg.branch], cwd=rd)
+            self._fetch_extra_branch(rd)
             return rd
         rd.parent.mkdir(parents=True, exist_ok=True)
         if rd.exists():
             shutil.rmtree(rd)
         self._git(["clone", "--branch", self.cfg.branch, self.remote_url(), str(rd)],
                   cwd=rd.parent, timeout=900)
+        self._fetch_extra_branch(rd)
         return rd
+
+    def _fetch_extra_branch(self, rd):
+        """G17_EXTRA_BRANCH doluysa ana dala EK olarak o dali da uzak izleme
+        ref'i olarak getirir (refs/remotes/origin altinda). Bos/tanimsizsa
+        hicbir sey yapmaz; davranis mevcut haliyle ayni kalir. Basarisizlik
+        ana akisi DUSURMEZ; yalnizca loglanir."""
+        branch = (os.environ.get("G17_EXTRA_BRANCH") or "").strip()
+        if not branch:
+            return
+        try:
+            self._git(["fetch", "--quiet", "origin",
+                       "+refs/heads/%s:refs/remotes/origin/%s" % (branch, branch)],
+                      cwd=rd)
+            sha = self._git(["rev-parse", "--short", "origin/" + branch], cwd=rd)
+            self.log("g17: ek dal getirildi: %s -> %s" % (branch, sha))
+        except GitHubError as ex:
+            self.log("g17: ek dal getirme basarisiz: %s (%s)" % (branch, ex))
 
     def remote_url(self):
         if self.cfg.repo.startswith(("http://", "https://", "/", "file://")):
