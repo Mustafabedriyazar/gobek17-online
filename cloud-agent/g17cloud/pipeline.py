@@ -147,45 +147,75 @@ _state_sweep_done = False
 
 
 def _sweep_stale_state_once(cfg, gh, ev, task_id):
-    """GOREV-ONCESI TEK SEFERLIK TEMIZLIK (INFRA-1C): eski durum agaclarini
+    """GOREV-ONCESI TEK SEFERLIK TEMIZLIK (INFRA-1C/1D): eski durum agaclarini
     ve orphan worktree'leri guvenle supurur.
 
-    Surec omru boyunca EN FAZLA BIR KEZ calisir (modul-duzeyi bayrak).
-    Iki hedefi vardir: (1) guncel durum dizininin (cfg.state_dir) KARDESI
-    olan, adi "g17" ile baslayan ve guncel dizinden FARKLI olan ESKI durum
-    agaclarini siler; (2) cfg.work_dir altinda kalmis, "wt-"/"self-wt-" ile
-    baslayan ve su anki gorevin worktree'si OLMAYAN orphan dizinleri siler,
-    ardindan git worktree kaydini prune eder. Yalnizca bu iki desene uyan
-    girdilere dokunulur — lost+found, log dosyalari ve guncel gorev/durum
-    dizinleri ASLA hedeflenmez. Herhangi bir silme hatasi burada YUTULUR ve
-    olay olarak raporlanir; cagiran taraf (Pipeline.run) yine de tum cagriyi
-    try/except ile sarar ki bir supurme hatasi ana gorevi DUSURMESIN.
+    Silme islemi surec omru boyunca EN FAZLA BIR KEZ calisir (modul-duzeyi
+    bayrak); ANCAK fonksiyon HER cagrildiginda (calissin ya da bayrak
+    yuzunden atlansin) en az bir olay yazar — boylece bu adimin GERCEKTEN
+    calistigi olay gunlugunden dogrulanabilir. Iki hedefi vardir: (1)
+    guncel durum dizininin (cfg.state_dir) UST dizinini (state_dir.parent,
+    ornegin guncel dizin /data/g17b ise /data) tarar; bu ust dizin altinda
+    adi "g17" ile baslayan ve guncel durum dizininden FARKLI olan ESKI
+    KARDES durum agaclarini siler (ornegin /data/g17); (2) cfg.work_dir
+    altinda kalmis, "wt-"/"self-wt-" ile baslayan ve su anki gorevin
+    worktree'si OLMAYAN orphan dizinleri siler, ardindan git worktree
+    kaydini prune eder. Yalnizca bu iki desene uyan girdilere dokunulur —
+    lost+found, log dosyalari ve guncel gorev/durum dizinleri ASLA
+    hedeflenmez. Silme oncesi ve sonrasi ust dizindeki GERCEK bos disk
+    alani (shutil.disk_usage) olculur ve kazanilan bayt olay mesajinda
+    raporlanir. Herhangi bir silme hatasi burada YUTULUR ve olay olarak
+    raporlanir; cagiran taraf (Pipeline.run) yine de tum cagriyi try/except
+    ile sarar ki bir supurme hatasi ana gorevi DUSURMESIN.
     """
     global _state_sweep_done
+    state_dir = Path(cfg.state_dir).resolve()
+    parent_dir = state_dir.parent
     if _state_sweep_done:
+        ev(task_id, "cleanup-sweep",
+           "eski durum agaci supurmesi bu surecte zaten calisti, atlaniyor "
+           "(ust dizin=%s, guncel durum dizini=%s)" % (parent_dir, state_dir))
         return
     _state_sweep_done = True
 
-    state_dir = Path(cfg.state_dir).resolve()
-    parent_dir = state_dir.parent
+    try:
+        free_before = shutil.disk_usage(parent_dir).free
+    except OSError:
+        free_before = None
+
     try:
         entries = sorted(parent_dir.iterdir()) if parent_dir.is_dir() else []
     except OSError as ex:
         entries = []
         ev(task_id, "cleanup-sweep", "eski durum agaci taramasi basarisiz: %s" % str(ex)[:200])
+    ev(task_id, "cleanup-sweep",
+       "eski durum agaci taramasi basliyor: ust dizin=%s (%d girdi), guncel durum dizini=%s"
+       % (parent_dir, len(entries), state_dir))
+    removed = 0
     for entry in entries:
         if entry.is_symlink() or not entry.is_dir():
             continue
         if not entry.name.startswith("g17") or entry == state_dir:
             continue
         try:
-            freed = sum(f.stat().st_size for f in entry.rglob("*") if f.is_file())
             shutil.rmtree(entry)
-            ev(task_id, "cleanup-sweep",
-               "eski durum agaci silindi: %s (%d bayt kazanildi)" % (entry, freed))
+            removed += 1
+            ev(task_id, "cleanup-sweep", "eski durum agaci silindi: %s" % entry)
         except OSError as ex:
             ev(task_id, "cleanup-sweep",
                "eski durum agaci silinemedi (%s): %s" % (entry, str(ex)[:200]))
+
+    try:
+        free_after = shutil.disk_usage(parent_dir).free
+    except OSError:
+        free_after = None
+    if free_before is not None and free_after is not None:
+        ev(task_id, "cleanup-sweep",
+           "eski durum agaci taramasi bitti: %d dizin silindi, %d bayt bos alan kazanildi"
+           % (removed, free_after - free_before))
+    else:
+        ev(task_id, "cleanup-sweep",
+           "eski durum agaci taramasi bitti: %d dizin silindi (bos alan olculemedi)" % removed)
 
     work_dir = Path(cfg.work_dir)
     keep = {"wt-%s" % task_id, "self-wt-%s" % task_id}
@@ -194,6 +224,9 @@ def _sweep_stale_state_once(cfg, gh, ev, task_id):
     except OSError as ex:
         wt_entries = []
         ev(task_id, "cleanup-sweep", "work dizini taramasi basarisiz: %s" % str(ex)[:200])
+    ev(task_id, "cleanup-sweep",
+       "orphan worktree taramasi basliyor: work dizini=%s (%d girdi)" % (work_dir, len(wt_entries)))
+    wt_removed = 0
     for entry in wt_entries:
         if entry.is_symlink() or not entry.is_dir():
             continue
@@ -201,10 +234,13 @@ def _sweep_stale_state_once(cfg, gh, ev, task_id):
             continue
         try:
             shutil.rmtree(entry)
+            wt_removed += 1
             ev(task_id, "cleanup-sweep", "orphan worktree dizini silindi: %s" % entry)
         except OSError as ex:
             ev(task_id, "cleanup-sweep",
                "orphan worktree dizini silinemedi (%s): %s" % (entry, str(ex)[:200]))
+    ev(task_id, "cleanup-sweep",
+       "orphan worktree taramasi bitti: %d dizin silindi" % wt_removed)
 
     try:
         gh._git(["worktree", "prune"], cwd=cfg.repo_dir, check=False)
