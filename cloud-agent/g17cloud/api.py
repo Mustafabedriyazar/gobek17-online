@@ -70,6 +70,21 @@ def _disk_snapshot(cfg):
         return {"mount": mount, "error": type(ex).__name__}
 
 
+# POST /tasks disk kapisi: bos yuzde kritik esigin (_DISK_CRIT_FREE_PCT)
+# altindaysa YENI gorev KABUL EDILMEZ (507 INSUFFICIENT_WORKSPACE_DISK).
+# Calisma diski (G17_WORK_DIR) SABIT boyuttadir ve buyutulemez; olcum
+# YALNIZ istek aninda, yalnizca shutil.disk_usage ile yapilir (harici
+# komut CALISTIRILMAZ). Belirsiz ic hata yerine ACIK ret donulur.
+def _disk_gate(cfg):
+    try:
+        usage = shutil.disk_usage(str(cfg.work_dir))
+        total, free = usage.total, usage.free
+        free_pct = round((free / total) * 100, 2) if total else 0.0
+        return free_pct >= _DISK_CRIT_FREE_PCT, free, free_pct
+    except Exception:
+        return False, None, None
+
+
 # ============================================================================
 # WEB KONSOLU — telefondan curl yazmadan gorev vermek icin.
 # Token tarayicida localStorage'ta tutulur; sunucuya yalnizca Authorization
@@ -185,6 +200,12 @@ class Service:
         # komutu KENDISI calistirmaz; yalnizca is kaydini tutar.
         from .worker_queue import WorkerQueue
         self.worker_queue = WorkerQueue(self.cfg.state_dir)
+        # Tek aktif gorev kilidi: ayni anda YALNIZCA TEK bir yapay zeka
+        # gorevi calisir. Kilit submit() icinde ATOMIK alinir (kontrol +
+        # kayit tek lock altinda); gorev BITTIGINDE (basari, hata veya
+        # istisna FARK ETMEKSIZIN) _release_active ile HER ZAMAN birakilir.
+        self._active_lock = threading.Lock()
+        self._active_task_id = None
 
     # ------------------------------------------------------------------ worker
     def start_workers(self, n=2):
@@ -209,7 +230,13 @@ class Service:
                 log("worker hatasi:", traceback.format_exc(limit=3))
                 self.store.update(tid, status="failed", phase="INTERNAL")
             finally:
+                self._release_active(tid)
                 self.q.task_done()
+
+    def _release_active(self, task_id):
+        with self._active_lock:
+            if self._active_task_id == task_id:
+                self._active_task_id = None
 
     def recover(self):
         """Restart sonrasi yarim kalan gorevleri kurtarir.
@@ -252,9 +279,17 @@ class Service:
         return recovered
 
     def submit(self, build, task, provider=None, dry_run=False, no_deploy=False, mode=None):
-        rec = self.store.create(build, task, provider, dry_run, no_deploy, mode)
+        """Atomik kabul: aktif gorev VARSA (None, calisan_gorev_id) doner ve
+        HICBIR KAYIT OLUSTURULMAZ; boylece iki ayri kanaldan gelen istek
+        birbirini BOZAMAZ (yalnizca biri kazanir)."""
+        with self._active_lock:
+            if self._active_task_id is not None:
+                return None, self._active_task_id
+            rec = self.store.create(build, task, provider, dry_run, no_deploy, mode)
+            self._active_task_id = rec["id"]
+        log("aktif gorev kilidi alindi:", rec["id"])
         self.q.put(rec["id"])
-        return rec
+        return rec, None
 
     # ------------------------------------------------------------------ durum
     def status(self):
@@ -433,6 +468,14 @@ def make_handler(svc: Service):
                 return self._send(200, {"ok": True, "id": job["id"], "status": job["status"]})
             if path != "/tasks":
                 return self._send(404, {"ok": False, "error": "bilinmeyen uc"})
+            disk_ok, disk_free, disk_free_pct = _disk_gate(svc.cfg)
+            if not disk_ok:
+                log("disk kapisi reddetti: free=%s pct=%s esik=%s" %
+                    (disk_free, disk_free_pct, _DISK_CRIT_FREE_PCT))
+                return self._send(507, {"ok": False, "code": "INSUFFICIENT_WORKSPACE_DISK",
+                                        "error": "calisma diskinde yeterli bos alan yok",
+                                        "freeBytes": disk_free, "freePct": disk_free_pct,
+                                        "thresholdPct": _DISK_CRIT_FREE_PCT})
             b = self._body()
             build = str(b.get("build") or "").strip()
             task = str(b.get("task") or "").strip()
@@ -455,8 +498,13 @@ def make_handler(svc: Service):
                 mode = resolve_task_mode(b.get("mode"))
             except ValueError:
                 return self._send(400, {"ok": False, "error": "gecersiz mode"})
-            rec = svc.submit(build, task, prov, bool(b.get("dryRun")),
-                             bool(b.get("noDeploy")), mode)
+            rec, busy_id = svc.submit(build, task, prov, bool(b.get("dryRun")),
+                                      bool(b.get("noDeploy")), mode)
+            if rec is None:
+                log("gorev reddedildi: BUSY, calisan=%s" % busy_id)
+                return self._send(409, {"ok": False, "code": "BUSY",
+                                        "error": "baska bir gorev zaten calisiyor",
+                                        "runningTaskId": busy_id})
             return self._send(202, {"ok": True, "id": rec["id"], "status": rec["status"],
                                     "poll": "/tasks/%s" % rec["id"]})
 
