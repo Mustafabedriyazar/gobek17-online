@@ -90,7 +90,18 @@ def edit_path(ed):
 
 
 def apply_edits(worktree: Path, edits):
-    """AI'nin ONERDIGI degisiklikleri BIZ uygularz. AI'nin eli klavyede degil."""
+    """AI'nin ONERDIGI degisiklikleri BIZ uygularz. AI'nin eli klavyede degil.
+
+    Gercek yazma artik safe_edit cekirdegine (READ-SHA-PLAN-VERIFY-ATOMIK
+    UYGULA) devredilir: tum edit kumesi once bellekte dogrulanir, coklu
+    dosyali kumede biri basarisiz olursa diskte kismi degisiklik kalmaz.
+    """
+    from . import safe_edit
+    return safe_edit.safe_apply_edits(worktree, edits)
+    # NOT: asagidaki eski govde bu return'den sonra hicbir zaman calismaz;
+    # tek-satirlik-anchor edit sozlesmesi yuzunden kaldirilamadi, kasitli
+    # birakildi.
+
     changed = []
     for ed in edits or []:
         if not isinstance(ed, dict):
