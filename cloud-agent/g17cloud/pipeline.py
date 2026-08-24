@@ -206,6 +206,40 @@ class Pipeline:
             out.append("### %s\n%s" % (rel, txt))
         return "\n\n".join(out)
 
+    def repair_file_context(self, wt, changed, budget=8000, head_lines=40, tail_lines=40):
+        """ONARIM TURU baglami: degisen dosyalarin GUNCEL icerigini AI'ya tasir.
+
+        AI "old" alanini bu icerikten uretmelidir — hafizadan uretilen
+        eslesmeyen metin, "eslesmeyen duzenleme" hatasinin onarim turunda
+        tekrar etmesine yol aciyordu. Dosya listesi pipeline'in zaten
+        bildigi degisiklik kaydindan (changed) gelir; ayri bir izleme
+        mekanizmasi kurulmaz. Dosya budget'i asarsa yalnizca ilk/son
+        satirlar eklenir ve kirpildigi acikca belirtilir.
+        """
+        names = ", ".join(changed or []) or "(yok)"
+        blocks = []
+        for rel in changed or []:
+            try:
+                p = aiw.safe_join(Path(wt), rel)
+            except aiw.UnsafeEdit:
+                continue
+            if not p.is_file():
+                blocks.append("### %s\n(dosya yok — bu turda silinmis olabilir)" % rel)
+                continue
+            txt = p.read_text(encoding="utf-8", errors="replace")
+            if len(txt) <= budget:
+                blocks.append("### %s\n%s" % (rel, txt))
+                continue
+            lines = txt.splitlines()
+            head = "\n".join(lines[:head_lines])
+            tail = "\n".join(lines[-tail_lines:])
+            blocks.append(
+                "### %s (KIRPILDI — %d satirin ilk %d ve son %d satiri gosteriliyor)\n%s\n...\n%s"
+                % (rel, len(lines), head_lines, tail_lines, head, tail))
+        if not blocks:
+            return names
+        return names + "\n\nGUNCEL dosya icerikleri (old alanini BUNDAN uret):\n" + "\n\n".join(blocks)
+
     # ------------------------------------------------------------------ akis
     def run(self, task_id):
         rec = self.store.get(task_id)
@@ -292,7 +326,7 @@ class Pipeline:
                                     for f in tests["failed"])[:6000]
                 rep_raw = self.ai.call(provider, SYSTEM_CONTEXT, REPAIR_PROMPT.format(
                     attempt=attempt, max=self.cfg.max_repair, failure=failure,
-                    changed=", ".join(changed), build=build), cwd=wt)
+                    changed=self.repair_file_context(wt, changed), build=build), cwd=wt)
                 rep = parse_json_block(rep_raw)
                 new_changed, ignored_repair_edits, ignored_now = apply_repair_edits(
                     wt, rep, attempt, self.cfg.max_repair, ignored_repair_edits)
