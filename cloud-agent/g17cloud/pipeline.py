@@ -128,6 +128,20 @@ def apply_repair_edits(wt, rep, attempt, max_attempts, ignored_total):
     return apply_edits(wt, valid), ignored_total, ignored
 
 
+def repair_failure_signature(entry):
+    """Onarim turu icin hata imzasi: hata tipi + hataya konu dosya yolunun birlesimi.
+
+    Ayni imza (ayni hata tipi + ayni dosya) bir sonraki denemede de gorulurse
+    onarim dongusu REPEATED_FAILURE ile durur (bkz. Pipeline.run, bolum 5).
+    """
+    import re
+    output = entry.get("output") or ""
+    first_line = next((ln.strip() for ln in output.splitlines() if ln.strip()), "")
+    m = re.search(r"([A-Za-z_][A-Za-z0-9_.]*Error)\b", output)
+    err_type = m.group(1) if m else (first_line[:60] or "UNKNOWN")
+    return "%s::%s" % (err_type, entry.get("test") or "?")
+
+
 class Pipeline:
     def __init__(self, cfg, store, lock, log=None):
         self.cfg = cfg
@@ -322,6 +336,7 @@ class Pipeline:
             # --- 5 testler + onarim dongusu (SINIRLI) ------------------------------
             attempt = 0
             ignored_repair_edits = 0
+            seen_failure_signatures = set()
             tests = self.guard.run_tests(wt, build)
             while not tests["ok"]:
                 attempt += 1
@@ -330,6 +345,16 @@ class Pipeline:
                                       "%d onarim turunda testler gecmedi" % self.cfg.max_repair,
                                       {"attempts": attempt - 1,
                                        "failed": [f["test"] for f in tests["failed"]]})
+                current_signatures = {repair_failure_signature(f) for f in tests["failed"]}
+                repeated = current_signatures & seen_failure_signatures
+                if repeated:
+                    err_type, _, err_path = next(iter(repeated)).partition("::")
+                    return self._fail(rec, "REPEATED_FAILURE",
+                                      "onarim dongusu durdu: '%s' hatasi '%s' dosyasinda tekrarladi"
+                                      % (err_type, err_path),
+                                      {"attempts": attempt - 1,
+                                       "signature": next(iter(repeated))})
+                seen_failure_signatures |= current_signatures
                 self._ev(task_id, "repair", "test FAIL — AI onarim turu %d/%d"
                          % (attempt, self.cfg.max_repair))
                 failure = "\n".join("%s:\n%s" % (f["test"], f["output"])
