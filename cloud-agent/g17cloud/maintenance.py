@@ -300,6 +300,11 @@ class MaintenancePipeline:
             prompt = self._prompt(wt, rec["task"])
             raw = self.ai.call(provider, SYSTEM, prompt, cwd=wt)
             plan = parse_json_block(raw)
+            if "edits" not in plan:
+                return self._fail(task_id, "EDIT",
+                                  "AI_PLAN_KEY_MISSING: yanitta edits anahtari yok; "
+                                  "gelen anahtarlar: %s; ham cikti %d bayt"
+                                  % (sorted(plan.keys())[:12], len(raw or "")))
             edits = plan.get("edits") or []
             if not edits and (rec.get("mode") or DEFAULT_TASK_MODE) == "chore":
                 self.store.update(task_id, status="success", phase="done",
