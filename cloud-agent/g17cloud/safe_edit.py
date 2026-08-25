@@ -46,6 +46,13 @@ class StaleEdit(AIError):
     plan ile uygulama arasinda disaridan degisti (STALE_EDIT). HICBIR SEY yazilmaz."""
 
 
+class EditSchemaInvalid(AIError):
+    """Bir edit kaydinin path/old/new alani metin degil ve guvenli sekilde
+    metne cikarilamadi (AI_EDIT_SCHEMA_INVALID). Bozuk payload'in kendisi
+    HICBIR YERE yazilmaz/loglanmaz; yalnizca alan adi, edit indeksi, python
+    turu ve (sozlukse) anahtar adlari raporlanir."""
+
+
 def sha256_text(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -56,6 +63,57 @@ def _read_sha(path):
         return None, None
     text = path.read_text(encoding="utf-8", errors="replace")
     return text, sha256_text(text)
+
+
+_TEXT_CARRIER_KEYS = ("text", "content", "value")
+
+
+def _log_schema_event(message):
+    print("[g17-edit-schema]", message, flush=True)
+
+
+def _coerce_edit_text_field(value, field, index):
+    """`value` metin degilse guvenli sekilde metne cikarmayi DENER; basarisiz
+    olursa AI_EDIT_SCHEMA_INVALID ile fail-closed durur. Asla str() ile ZORLA
+    donusum YAPMAZ; bozuk degerin kendi icerigi ne loglanir ne raise edilen
+    hataya eklenir — yalnizca alan adi/indeks/tur/(sozlukse) anahtarlar."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in _TEXT_CARRIER_KEYS:
+            carried = value.get(key)
+            if isinstance(carried, str):
+                _log_schema_event(
+                    "edit[%d].%s sozlukten '%s' anahtari ile metne cikarildi"
+                    % (index, field, key))
+                return carried
+        raise EditSchemaInvalid(
+            "AI_EDIT_SCHEMA_INVALID: edit[%d].%s alani sozluk ama taninan bir "
+            "metin tasiyici anahtar yok (anahtarlar: %s)"
+            % (index, field, sorted(value.keys())))
+    raise EditSchemaInvalid(
+        "AI_EDIT_SCHEMA_INVALID: edit[%d].%s alani beklenmeyen python turunde: %s"
+        % (index, field, type(value).__name__))
+
+
+def _validate_edit_schema(ed, index):
+    """path (yoksa file/filename), old ve new alanlarinin KULLANILMADAN ONCE
+    METIN oldugunu deterministik olarak dogrular/cikarir. Zaten metin olan
+    alanlar DEGISMEDEN doner — bugunku davranis birebir korunur. Orijinal
+    `ed` sozlugu MUTATE EDILMEZ; dogrulanmis alanlarla YENI bir dict doner."""
+    out = dict(ed)
+    for key in ("path", "file", "filename"):
+        v = ed.get(key)
+        if v:
+            out[key] = _coerce_edit_text_field(v, key, index)
+            break
+    old = ed.get("old")
+    if old:
+        out["old"] = _coerce_edit_text_field(old, "old", index)
+    new = ed.get("new")
+    if new is not None:
+        out["new"] = _coerce_edit_text_field(new, "new", index)
+    return out
 
 
 def plan_edits(worktree, edits):
@@ -76,9 +134,10 @@ def plan_edits(worktree, edits):
     worktree = Path(worktree)
     order = []
     by_target = {}
-    for ed in edits or []:
+    for index, ed in enumerate(edits or []):
         if not isinstance(ed, dict):
             continue
+        ed = _validate_edit_schema(ed, index)
         action = (ed.get("action") or "replace").lower()
         rel = edit_path(ed)
         target = safe_join(worktree, rel)
